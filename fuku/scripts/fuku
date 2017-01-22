@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+
+from fuku.client import Client
+from fuku.profile import Profile
+from fuku.region import Region
+from fuku.app import App
+from fuku.machine import Machine
+from fuku.image import Image
+from fuku.task import Task
+from fuku.container import Container
+
+
+if __name__ == '__main__':
+    cli = Client()
+    cli.add_modules(Profile, Region, App, Machine, Image, Task, Container)
+    cli.entry()
