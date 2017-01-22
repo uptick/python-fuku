@@ -146,11 +146,14 @@ def container_exists(name):
     return name in running
 
 
-def run_container(ctr):
-    try:
-        obj = client.containers.get(ctr['params']['name'])
-    except docker.errors.NotFound:
-        obj = None
+def run_container(ctr, name=None):
+    name = ctr['params'].get('name', name)
+    obj = None
+    if name:
+        try:
+            obj = client.containers.get(name)
+        except docker.errors.NotFound:
+            pass
     if obj:
         obj.remove(force=True)
     pull_image(ctr['params']['image'])
@@ -190,11 +193,10 @@ def handle_run(db, args):
             ctr = ctrs[name]
         except KeyError:
             ctr = {
-                'name': name,
                 'task': task
             }
         ctr['params'] = params_from_task(name, task)
-        obj = run_container(ctr)
+        obj = run_container(ctr, name=name)
         name = obj.name
         ctr['params']['name'] = name
         ctrs[name] = ctr
