@@ -1,7 +1,11 @@
 import json
 
 from .module import Module
-from .utils import StoreKeyValuePair, env_to_dict, dict_to_env
+from .utils import (
+    StoreKeyValuePair, StorePortPair,
+    env_to_dict, dict_to_env,
+    ports_to_dict, dict_to_ports
+)
 
 
 class Task(Module):
@@ -20,12 +24,18 @@ class Task(Module):
         p = subp.add_parser('add', help='add a task')
         p.add_argument('name')
         p.add_argument('image')
+        p.add_argument('--update', '-u', action='store_true')
         p.set_defaults(task_handler=self.handle_add)
 
         p = subp.add_parser('env', help='add environment')
         p.add_argument('name')
         p.add_argument('values', action=StoreKeyValuePair, nargs='+', help='key value pairs')
         p.set_defaults(task_handler=self.handle_env)
+
+        p = subp.add_parser('ports', help='manage ports')
+        p.add_argument('name', help='task name')
+        p.add_argument('values', action=StorePortPair, nargs='+', help='port mappings')
+        p.set_defaults(task_handler=self.handle_ports)
 
         # uregp = subp.add_parser('unregister', help='unregister a container')
         # uregp.add_argument('name', help='container name')
@@ -68,11 +78,16 @@ class Task(Module):
         img_mod = self.client.get_module('image')
         img = img_mod.get_uri(args.image)
         name = '%s-%s' % (app, args.name)
-        ctr_def = {
-            'name': name,
-            'image': img,
-            'memoryReservation': 1  # required
-        }
+        if args.update:
+            task = self.get_task(args.name)
+            ctr_def = task['containerDefinitions'][0]
+            ctr_def['image'] = img
+        else:
+            ctr_def = {
+                'name': name,
+                'image': img,
+                'memoryReservation': 1  # required
+            }
         self.register_task(ctr_def)
 
     def handle_env(self, args):
@@ -82,6 +97,15 @@ class Task(Module):
         env.update(args.values)
         env = dict_to_env(env)
         ctr_def['environment'] = env
+        self.register_task(ctr_def)
+
+    def handle_ports(self, args):
+        task = self.get_task(args.name)
+        ctr_def = task['containerDefinitions'][0]
+        ports = ports_to_dict(ctr_def['portMappings'])
+        ports.update(args.values)
+        ports = dict_to_ports(ports)
+        ctr_def['portMappings'] = ports
         self.register_task(ctr_def)
 
     def get_task(self, name):

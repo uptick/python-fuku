@@ -6,10 +6,10 @@ from fabric.operations import (
     _prefix_env_vars, _prefix_commands,
     _AttributeString
 )
-from fabric.state import env, output, win32
+from fabric.state import env as _env, output, win32
 
 
-def local(command, capture=False, shell=None):
+def local(command, capture=False, shell=None, ignore_errors=False, env=None):
     """
     Run a command on the local system.
     `local` is simply a convenience wrapper around the use of the builtin
@@ -68,11 +68,14 @@ def local(command, capture=False, shell=None):
         # Non-captured, hidden streams are discarded.
         out_stream = None if output.stdout else dev_null
         err_stream = None if output.stderr else dev_null
+    if env is None:
+        env = os.environ
     try:
         cmd_arg = wrapped_command if win32 else [wrapped_command]
         p = subprocess.Popen(cmd_arg, shell=True, stdout=out_stream,
                              stderr=err_stream, executable=shell,
-                             close_fds=(not win32))
+                             close_fds=(not win32),
+                             env=env)
         (stdout, stderr) = p.communicate()
     finally:
         if dev_null is not None:
@@ -85,13 +88,15 @@ def local(command, capture=False, shell=None):
     out.failed = False
     out.return_code = p.returncode
     out.stderr = err
-    if p.returncode not in env.ok_ret_codes:
+    if p.returncode not in _env.ok_ret_codes and not ignore_errors:
         out.failed = True
         # msg = "local() encountered an error (return code %s) while executing '%s'" % (p.returncode, command)
         # print('\n\n')
-        print('{}'.format(out))
+        if out:
+            print('{}'.format(out))
         # print('\n')
-        print('{}'.format(err))
+        if err:
+            print('{}'.format(err))
         sys.exit(1)
         # error(message=msg, stdout=out, stderr=err)
     out.succeeded = not out.failed

@@ -2,6 +2,7 @@ import os
 import stat
 
 from .module import Module
+from .db import get_rc_path
 
 
 class App(Module):
@@ -130,15 +131,48 @@ class App(Module):
             {'app': name},
             capture='json'
         )
-        fn = '{}.pem'.format(name)
-        with open(fn, 'w') as keyf:
+        path = os.path.join(get_rc_path(), name, 'key.pem')
+        try:
+            os.makedirs(os.path.dirname(path))
+        except OSError:
+            pass
+        with open(path, 'w') as keyf:
             keyf.write(data['KeyMaterial'])
-        os.chmod(fn, stat.S_IRUSR | stat.S_IWUSR)
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        self.run(
+            'gpg -c {}'.format(path)
+        )
+        self.run(
+            '$aws s3 cp {}.gpg s3://$bucket/fuku/{}/key.pem.gpg'.format(path, name)
+        )
+
+    def get_key_file(self, name):
+        path = os.path.join(get_rc_path(), name, 'key.pem')
+        if not os.path.exists(path):
+            self.run(
+                '$aws s3 cp s3://$bucket/fuku/{}/key.pem.gpg {}.gpg'.format(name, path)
+            )
+            self.run(
+                'gpg -o {} -d {}.gpg'.format(path, path)
+            )
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+
+    def delete_key_pair(self, name):
+        self.run(
+            '$aws ec2 delete-key-pair'
+            ' --key-name fuku-$app',
+            {'app': name}
+        )
+        self.run(
+            '$aws s3 rm s3://$bucket/fuku/{}/key.pem.gpg'.format(name),
+            ignore_errors=True
+        )
 
     def config(self):
         cfg = {}
         app = self.get_selected()
         cfg['app'] = app
+        cfg['pem'] = os.path.join(get_rc_path(), app, 'key.pem')
         cfg.update(self.store['apps'][app])
         return cfg
 
@@ -164,6 +198,7 @@ class App(Module):
             pass
         self.delete_security_group(name)
         self.delete_app_group(name)
+        self.delete_key_pair(name)
 
     def select(self, args):
         if args.show:
@@ -176,6 +211,7 @@ class App(Module):
                 self.exists(name)
                 data = self.store.setdefault('apps', {}).setdefault(name, {})
                 data['security_group'] = self.get_security_group_id(name)
+                self.get_key_file(name)
                 self.store['selected'] = name
             else:
                 try:

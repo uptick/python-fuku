@@ -1,3 +1,6 @@
+import os
+from distutils.dir_util import copy_tree
+
 from .module import Module
 
 
@@ -33,6 +36,7 @@ class Container(Module):
         p = subp.add_parser('run', help='run a container')
         p.add_argument('--name', '-n', help='container name')
         p.add_argument('--task', '-t', help='task name')
+        p.add_argument('--restart', '-r', action='store_true')
         p.set_defaults(container_handler=self.handle_run)
 
         p = subp.add_parser('remove', help='remove a container')
@@ -45,11 +49,21 @@ class Container(Module):
 
         p = subp.add_parser('attach', help='attach to a container')
         p.add_argument('name', help='container name')
+        p.add_argument('--shell', '-s', default='bash')
         p.set_defaults(container_handler=self.handle_attach)
+
+        p = subp.add_parser('logs', help='get logs')
+        p.add_argument('name', help='container name')
+        p.set_defaults(container_handler=self.handle_logs)
 
         # selp = subp.add_parser('select', help='select a machine')
         # selp.add_argument('instance_id', help='machine instance ID')
         # selp.set_defaults(machine_handler=self.select)
+
+        p = subp.add_parser('template', help='manage container templates')
+        p.add_argument('--list', '-l', action='store_true')
+        p.add_argument('--copy', '-c')
+        p.set_defaults(container_handler=self.handle_template)
 
     def handle_list(self, args):
         mach_mod = self.client.get_module('machine')
@@ -66,13 +80,18 @@ class Container(Module):
             print(ctr)
 
     def handle_run(self, args):
+        self.run(args.name, args.task, args.restart)
+
+    def run(self, name, task, restart=False):
         mach_mod = self.client.get_module('machine')
         mach = mach_mod.get_selected()
         cmd = 'fuku-agent run'
-        if args.name:
-            cmd += ' -n {}'.format(args.name)
-        if args.task:
-            cmd += ' -t {}'.format(args.task)
+        if name:
+            cmd += ' -n {}'.format(name)
+        if task:
+            cmd += ' -t {}'.format(task)
+        if restart:
+            cmd += ' -r'
         data = mach_mod.ssh_run(
             cmd,
             name=mach,
@@ -106,13 +125,31 @@ class Container(Module):
     def handle_attach(self, args):
         mach_mod = self.client.get_module('machine')
         mach = mach_mod.get_selected()
-        cmd = 'docker exec -i -t {} bash'.format(args.name)
+        cmd = 'docker exec -i -t {} {}'.format(args.name, args.shell)
         mach_mod.ssh_run(
             cmd,
             name=mach,
             tty=True,
             capture=False
         )
+
+    def handle_logs(self, args):
+        mach_mod = self.client.get_module('machine')
+        mach = mach_mod.get_selected()
+        cmd = 'docker logs {}'.format(args.name)
+        mach_mod.ssh_run(
+            cmd,
+            name=mach,
+            tty=True,
+            capture=False
+        )
+
+    def handle_template(self, args):
+        if args.list:
+            for tmpl in os.listdir(self.data_path('images')):
+                print(tmpl)
+        elif args.copy:
+            copy_tree(self.data_path('images/%s' % args.copy), './%s' % args.copy)
 
     def get_image(self, name):
         pass

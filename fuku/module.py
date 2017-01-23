@@ -69,15 +69,16 @@ class Module(object):
         print(msg)
         sys.exit()
 
-    def data_path(self, filename):
+    def data_path(self, filename=None):
         path = os.path.join(
             os.path.dirname(
                 os.path.realpath(__file__)
             ),
             'scripts',
-            'data',
-            filename
+            'data'
         )
+        if filename:
+            path = os.path.join(path, filename)
         return path
 
     @contextmanager
@@ -102,13 +103,18 @@ class Module(object):
         cfg = merge_cfgs(cfg, self.base_config)
         return finish_merge_cfgs(cfg)
 
-    def run(self, cmd, cfg={}, capture='discard', use_self=False):
+    def run(self, cmd, cfg={}, capture='discard', use_self=False, ignore_errors=False,
+            env={}):
         cfg = self.merged_config(cfg, use_self)
         final = subs(cmd, cfg)
         # print(final)
+        env_copy = os.environ.copy()
+        env_copy.update(env)
         output = run(
             final,
-            capture=capture not in set([None, '', False])
+            capture=capture not in set([None, '', False]),
+            ignore_errors=ignore_errors,
+            env=env_copy
         )
         if capture == 'json':
             output = json.loads(output)

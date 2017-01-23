@@ -40,6 +40,7 @@ def run(cmd, capture='json'):
     output = subprocess.check_output(cmd, shell=True)
     if capture == 'json':
         return json.loads(output.decode())
+    return output
 
 
 def get_task(name):
@@ -49,9 +50,13 @@ def get_task(name):
     env = {}
     for pair in ctr_def['environment']:
         env[pair['name']] = pair['value']
+    ports = {}
+    for pair in ctr_def['portMappings']:
+        ports[pair['containerPort']] = pair['hostPort']
     result = {
         'image': ctr_def['image'],
-        'environment': env
+        'environment': env,
+        'ports': ports
     }
     return result
 
@@ -127,7 +132,8 @@ def params_from_task(name, task_name):
         # 'remove': True,
         'restart_policy': {
             'Name': 'on-failure'
-        }
+        },
+        'networks': ['all']
     }
     if name:
         ctr['name'] = name
@@ -141,12 +147,22 @@ def get_running_containers():
     return running
 
 
-def container_exists(name):
+def container_is_running(name):
     running = get_running_containers()
     return name in running
 
 
+def create_network():
+    try:
+        client.networks.get('all')
+        return
+    except docker.errors.NotFound:
+        pass
+    client.networks.create('all', driver='bridge')
+
+
 def run_container(ctr, name=None):
+    create_network()
     name = ctr['params'].get('name', name)
     obj = None
     if name:
@@ -157,7 +173,22 @@ def run_container(ctr, name=None):
     if obj:
         obj.remove(force=True)
     pull_image(ctr['params']['image'])
-    return client.containers.run(**ctr['params'])
+
+    # The 'networks' option has no effect. I think the docker
+    # client may be a little borked. :/
+    # return client.containers.run(**ctr['params'])
+    cmd = 'docker run -d --restart=on-failure --network=all'
+    if ctr['params'].get('name', None):
+        cmd += ' --name ' + ctr['params']['name']
+    for k, v in ctr['params'].get('environment', {}).items():
+        cmd += ' -e "%s=%s"' % (k, v)
+    for k, v in ctr['params'].get('ports', {}).items():
+        cmd += ' -p %s:%s' % (k, v)
+    cmd += ' ' + ctr['params']['image']
+    data = run(cmd, capture='text')
+    data = data.decode()[:-1]
+    obj = client.containers.get(data)
+    return obj
 
 
 def handle_run(db, args):
@@ -169,14 +200,14 @@ def handle_run(db, args):
     if not name and not task:
         running = get_running_containers()
         for name, ctr in ctrs.items():
-            if name in running:
+            if name in running and not args.restart:
                 continue
-            ctr['params'] = params_from_task(ctr['name'], ctr['task'])
+            ctr['params'] = params_from_task(name, ctr['task'])
             run_container(ctr)
 
     # Run existing container with name.
     elif name and not task:
-        if not container_exists(name):
+        if not container_is_running(name) or args.restart:
             try:
                 ctr = ctrs[name]
             except KeyError:
@@ -187,7 +218,7 @@ def handle_run(db, args):
 
     # Run new container.
     else:
-        if name and container_exists(name):
+        if (name and container_is_running(name)) and not args.restart:
             error('container with that name already running')
         try:
             ctr = ctrs[name]
@@ -212,8 +243,8 @@ def handle_remove(db, args):
     else:
         to_remove = list(ctrs.values())
     for ctr in to_remove:
-        obj = client.containers.get(ctr['params']['name'])
         try:
+            obj = client.containers.get(ctr['params']['name'])
             obj.remove(force=True)
         except docker.errors.NotFound:
             pass
@@ -251,6 +282,7 @@ if __name__ == '__main__':
     p = subp.add_parser('run')
     p.add_argument('--task', '-t', help='task')
     p.add_argument('--name', '-n', help='name')
+    p.add_argument('--restart', '-r', action='store_true')
     p.set_defaults(handler=handle_run)
 
     p = subp.add_parser('list')

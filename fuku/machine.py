@@ -1,3 +1,5 @@
+import json
+
 from .module import Module
 
 
@@ -14,8 +16,9 @@ class Machine(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='machine help')
 
-        listp = subp.add_parser('list', help='list machines')
-        listp.set_defaults(machine_handler=self.list)
+        p = subp.add_parser('list', help='list machines')
+        p.add_argument('name', nargs='?')
+        p.set_defaults(machine_handler=self.list)
 
         addp = subp.add_parser('add', help='add a machine')
         addp.add_argument('name', help='machine name')
@@ -176,9 +179,13 @@ class Machine(Module):
 
     def list(self, args):
         app = self.client.get_selected('app')
-        machs = self.list_instances(app)
-        for m in machs:
-            print('{}:{}'.format(m['tags']['name'], m['id']))
+        if args.name:
+            inst = self.get_instance(args.name, app)
+            print(json.dumps(inst, indent=2))
+        else:
+            machs = self.list_instances(app)
+            for m in machs:
+                print('{}:{}'.format(m['tags']['name'], m['id']))
 
     def add(self, args):
         if not self.db.get('profile', {}).get('bucket', None):
@@ -258,7 +265,7 @@ class Machine(Module):
         name = name or self.get_selected()
         inst = self.get_instance(name, app)
         ip = inst['PublicIpAddress']
-        full_cmd = 'ssh%s -i "${app}.pem" root@%s %s' % (' -t' if tty else '', ip, cmd)
+        full_cmd = 'ssh%s -i "$pem" root@%s %s' % (' -t' if tty else '', ip, cmd)
         return self.run(full_cmd, capture=capture)
 
     def scp(self, args):
@@ -267,7 +274,7 @@ class Machine(Module):
         inst = self.get_instance(name, app)
         ip = inst['PublicIpAddress']
         self.run(
-            'scp -i "$app.pem" {} root@{}:{}'.format(
+            'scp -i "$pem" {} root@{}:{}'.format(
                 args.src,
                 ip,
                 args.dst
