@@ -81,9 +81,12 @@ class Task(Module):
 
     def add(self, task_name, ctr_name, image_name, update=False):
         app = self.client.get_selected('app')
-        if image_name[0] != '/':
+        if image_name[0] != '!':
             img_mod = self.client.get_module('image')
-            img = img_mod.get_uri(image_name)
+            if image_name[0] == '/':
+                img = img_mod.get_uri(image_name[1:], _global=True)
+            else:
+                img = img_mod.get_uri(image_name)
         else:
             img = image_name[1:]
         try:

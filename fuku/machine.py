@@ -265,7 +265,7 @@ class Machine(Module):
         name = name or self.get_selected()
         inst = self.get_instance(name, app)
         ip = inst['PublicIpAddress']
-        full_cmd = 'ssh%s -i "$pem" root@%s %s' % (' -t' if tty else '', ip, cmd)
+        full_cmd = 'ssh%s -o "StrictHostKeyChecking no" -i "$pem" root@%s %s' % (' -t' if tty else '', ip, cmd)
         return self.run(full_cmd, capture=capture)
 
     def scp(self, args):
@@ -274,7 +274,7 @@ class Machine(Module):
         inst = self.get_instance(name, app)
         ip = inst['PublicIpAddress']
         self.run(
-            'scp -i "$pem" {} root@{}:{}'.format(
+            'scp -o "StrictHostKeyChecking no" -i "$pem" {} root@{}:{}'.format(
                 args.src,
                 ip,
                 args.dst

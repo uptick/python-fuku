@@ -23,7 +23,7 @@ class SSL(Module):
     def handle_add(self, args):
         task_mod = self.client.get_module('task')
         if not args.update:
-            task_mod.add(args.task, 'ssl', '/smashwilson/lets-nginx')
+            task_mod.add(args.task, 'ssl', '!smashwilson/lets-nginx')
         env = {
             'EMAIL': args.email,
             'DOMAIN': args.domain,
