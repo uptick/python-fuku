@@ -5,7 +5,7 @@ import tempfile
 from contextlib import contextmanager
 from string import Template
 
-from .runner import run
+from .runner import run, CommandError
 
 
 def merge_cfgs(a, b):
@@ -37,7 +37,9 @@ def finish_merge_cfgs(a):
 
 
 def subs(cmd, cfg):
-    cmd = Template(cmd).substitute(cfg)
+    _cfg = cfg.copy()
+    _cfg.update({'dollar': '$'})
+    cmd = Template(cmd).substitute(_cfg)
     return cmd
 
 
@@ -46,6 +48,7 @@ class Module(object):
     base_config = {
         'aws': 'aws'
     }
+    CommandError = CommandError
 
     def __init__(self, name, db=None, client=None):
         self.name = name

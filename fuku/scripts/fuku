@@ -7,7 +7,7 @@ from fuku.app import App
 from fuku.machine import Machine
 from fuku.image import Image
 from fuku.task import Task
-from fuku.container import Container
+# from fuku.container import Container
 from fuku.postgres import Postgres
 from fuku.ssl import SSL
 
@@ -16,6 +16,6 @@ if __name__ == '__main__':
     cli = Client()
     cli.add_modules(
         Profile, Region, App, Machine, Image,
-        Task, Container, Postgres, SSL
+        Task, Postgres, SSL
     )
     cli.entry()

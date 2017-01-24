@@ -9,6 +9,12 @@ from fabric.operations import (
 from fabric.state import env as _env, output, win32
 
 
+class CommandError(Exception):
+    def __init__(self, out):
+        super().__init__(out.stderr)
+        self.out = out
+
+
 def local(command, capture=False, shell=None, ignore_errors=False, env=None):
     """
     Run a command on the local system.
@@ -92,12 +98,13 @@ def local(command, capture=False, shell=None, ignore_errors=False, env=None):
         out.failed = True
         # msg = "local() encountered an error (return code %s) while executing '%s'" % (p.returncode, command)
         # print('\n\n')
-        if out:
-            print('{}'.format(out))
+        # if out:
+        #     print('{}'.format(out))
         # print('\n')
-        if err:
-            print('{}'.format(err))
-        sys.exit(1)
+        # if err:
+        #     print('{}'.format(err))
+        # sys.exit(1)
+        raise CommandError(out)
         # error(message=msg, stdout=out, stderr=err)
     out.succeeded = not out.failed
     # If we were capturing, this will be a string; otherwise it will be None.

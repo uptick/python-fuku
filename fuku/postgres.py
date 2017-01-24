@@ -23,6 +23,11 @@ class Postgres(Module):
         p.add_argument('name')
         p.set_defaults(postgres_handler=self.handle_add)
 
+        p = subp.add_parser('connect', help='connect to a task')
+        p.add_argument('task')
+        p.add_argument('container')
+        p.set_defaults(postgres_handler=self.handle_connect)
+
         p = subp.add_parser('select', help='select a postgres database')
         p.add_argument('name', nargs='?')
         p.add_argument('--show', '-s', action='store_true', help='show currently db')
@@ -110,6 +115,13 @@ class Postgres(Module):
             '$aws s3 cp {}.gpg s3://$bucket/fuku/{}/{}.pgpass.gpg'.format(path, app, args.name)
         )
 
+    def handle_connect(self, args):
+        task_mod = self.client.get_module('task')
+        env = {
+            'DATABASE_URL': self.get_url()
+        }
+        task_mod.env_set(args.task, args.container, env)
+
     def handle_select(self, args):
         if args.show:
             sel = self.get_selected(fail=False)
@@ -154,6 +166,15 @@ class Postgres(Module):
             capture='json'
         )
         return data
+
+    def get_url(self):
+        app = self.client.get_selected('app')
+        name = self.get_selected()
+        path = os.path.join(get_rc_path(), app, '%s.pgpass' % name)
+        with open(path, 'r') as inf:
+            data = inf.read()
+        host, port, db, user, pw = data.split(':')
+        return 'postgres://{}:{}@{}:{}/{}'.format(user, pw, host, port, db)
 
     def get_pgpass_file(self, name):
         app = self.client.get_selected('app')
