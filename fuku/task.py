@@ -57,25 +57,6 @@ class Task(Module):
         p.add_argument('--remove', '-r', action='store_true')
         p.set_defaults(task_handler=self.handle_command)
 
-        # p = subp.add_parser('link', help='manage links')
-        # p.add_argument('task')
-        # p.add_argument('name')
-        # p.add_argument('link')
-        # p.add_argument('--remove', '-r', action='store_true')
-        # p.set_defaults(task_handler=self.handle_link)
-
-        # p = subp.add_parser('run')
-        # p.add_argument('name', nargs='?')
-        # p.add_argument('task', nargs='?')
-        # p.add_argument('--restart', '-r', action='store_true')
-        # p.add_argument('--stop', '-s', action='store_true')
-        # p.add_argument('--remove', '-d', action='store_true')
-        # p.set_defaults(task_handler=self.handle_run)
-
-        # p = subp.add_parser('logs', help='get logs')
-        # p.add_argument('name', help='container name')
-        # p.set_defaults(task_handler=self.handle_logs)
-
     def handle_add(self, args):
         self.add(args.name, args.image, args.update)
 

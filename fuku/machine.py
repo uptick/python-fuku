@@ -23,6 +23,8 @@ class Machine(Module):
 
         addp = subp.add_parser('add', help='add a machine')
         addp.add_argument('name', help='machine name')
+        addp.add_argument('--public' '-p', action='store_true',
+                          help='assign public IP')
         addp.set_defaults(machine_handler=self.add)
 
         addp = subp.add_parser('init')
@@ -47,11 +49,11 @@ class Machine(Module):
         selp.add_argument('--show', '-s', action='store_true', help='show currently selected')
         selp.set_defaults(machine_handler=self.select)
 
-        p = subp.add_parser('restart', help='restart a machine')
+        p = subp.add_parser('reboot', help='reboot a machine')
         p.add_argument('name', nargs='?', help='machine name')
-        p.set_defaults(machine_handler=self.handle_restart)
+        p.set_defaults(machine_handler=self.handle_reboot)
 
-    def handle_restart(self, args):
+    def handle_reboot(self, args):
         app = self.client.get_selected('app')
         name = args.name
         if name and not self.exists(name):
@@ -216,7 +218,9 @@ class Machine(Module):
                 name
             )
         )
-        alloc_id, public_ip = self.allocate_address(inst_id)
+        self.init_swarm(args.name)
+        if args.public:
+            alloc_id, public_ip = self.allocate_address(inst_id)
         self.init_swarm(args.name)
 
     def handle_init_swarm(self, args):

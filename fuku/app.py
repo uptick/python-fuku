@@ -180,6 +180,18 @@ class App(Module):
             ' --cluster {}'.format(name)
         )
 
+    def create_log_group(self, name):
+        self.run(
+            '$aws logs create-log-group'
+            ' --log-group-name /{}'.format(name)
+        )
+
+    def delete_log_group(self, name):
+        self.run(
+            '$aws logs delete-log-group'
+            ' --log-group-name /{}'.format(name)
+        )
+
     def config(self):
         cfg = {}
         app = self.get_selected()
@@ -199,6 +211,7 @@ class App(Module):
         self.create_key_pair(name)
         self.create_security_group(name)
         # self.create_cluster(name)
+        self.create_log_group(name)
 
     def remove(self, args):
         name = args.name
@@ -213,6 +226,7 @@ class App(Module):
         self.delete_app_group(name)
         self.delete_key_pair(name)
         # self.delete_cluster(name)
+        self.delete_log_group(name)
 
     def select(self, args):
         if args.show:
