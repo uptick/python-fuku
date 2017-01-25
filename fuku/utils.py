@@ -31,6 +31,15 @@ def dict_to_env(val):
     return env
 
 
+def env_to_string(env, opt='-e'):
+    if env:
+        return ' ' + ' '.join([
+            '%s %s=%s' % (opt, k, v) for k, v in env_to_dict(env).items()
+        ])
+    else:
+        return ''
+
+
 def ports_to_dict(env):
     res = {}
     for pair in env:
@@ -43,6 +52,15 @@ def dict_to_ports(val):
     for k, v in val.items():
         env.append({'hostPort': int(k), 'containerPort': int(v), 'protocol': 'tcp'})
     return env
+
+
+def ports_to_string(val, opt='-p'):
+    if val:
+        return ' ' + ' '.join([
+            '%s %s:%s' % (opt, k, v) for k, v in ports_to_dict(val).items()
+        ])
+    else:
+        return ''
 
 
 def gen_secret(length=64):

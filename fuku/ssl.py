@@ -1,5 +1,5 @@
 from .module import Module
-from .utils import dict_to_env, dict_to_ports
+# from .utils import dict_to_env, dict_to_ports
 
 
 class SSL(Module):
@@ -12,7 +12,7 @@ class SSL(Module):
         subp = parser.add_subparsers(help='ssl help')
 
         p = subp.add_parser('add')
-        p.add_argument('task')
+        # p.add_argument('task')
         p.add_argument('email')
         p.add_argument('domain')
         p.add_argument('upstream')
@@ -23,22 +23,22 @@ class SSL(Module):
     def handle_add(self, args):
         task_mod = self.client.get_module('task')
         if not args.update:
-            task_mod.add(args.task, 'ssl', '!smashwilson/lets-nginx')
+            task_mod.add('ssl', '!smashwilson/lets-nginx')
         env = {
             'EMAIL': args.email,
             'DOMAIN': args.domain,
-            'UPSTREAM': '${dollar}' + args.upstream  # prefix for substitution
+            'UPSTREAM': args.upstream  # prefix for substitution
         }
         if args.staging:
             env['STAGING'] = '1'
         else:
-            task_mod.env_unset(args.task, 'ssl', ['STAGING'])
-        task_mod.env_set(args.task, 'ssl', env)
+            task_mod.env_unset('ssl', ['STAGING'])
+        task_mod.env_set('ssl', env)
         ports = {
             '80': '80',
             '443': '443'
         }
-        task_mod.ports_set(args.task, 'ssl', ports)
-        ctr = args.upstream.split(':')[0]
-        task_mod.link(args.task, 'ssl', ctr)
+        task_mod.ports_set('ssl', ports)
+        # ctr = args.upstream.split(':')[0]
+        # task_mod.link('ssl', ctr)
         # TODO: Remove reverse link.
