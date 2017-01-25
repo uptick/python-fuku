@@ -10,20 +10,18 @@ class Image(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='image help')
 
-        p = subp.add_parser('list', help='list images')
-        p.add_argument('--global', '-g', action='store_true', help='list global images')
-        p.set_defaults(image_handler=self.handle_list)
-
         p = subp.add_parser('add', help='add an image')
         p.add_argument('name', help='image name')
-        p.add_argument('--global', '-g', action='store_true', help='store globally')
         p.set_defaults(image_handler=self.handle_add)
 
-        p = subp.add_parser('connect', help='connect a local image')
+        p = subp.add_parser('list', help='list images')
+        p.set_defaults(image_handler=self.handle_list)
+
+        p = subp.add_parser('connect', help='connect to local image')
         p.add_argument('name', help='image name')
         p.add_argument('local', nargs='?', help='local image name')
-        p.add_argument('--show', '-s', action='store_true', help='show current')
-        p.add_argument('--global', '-g', action='store_true', help='global image')
+        p.add_argument('--show', '-s', action='store_true',
+                       help='show current')
         p.set_defaults(image_handler=self.handle_connect)
 
         # uregp = subp.add_parser('unregister', help='unregister a container')
@@ -32,39 +30,29 @@ class Image(Module):
 
         p = subp.add_parser('push', help='push an image')
         p.add_argument('name', help='image name')
-        p.add_argument('--global', '-g', action='store_true', help='global image')
         p.set_defaults(image_handler=self.handle_push)
 
-        # lnchp = subp.add_parser('launch', help='launch a container')
-        # lnchp.add_argument('name', help='container name')
-        # lnchp.set_defaults(container_handler=self.launch)
-
-        # remp = subp.add_parser('remove', help='remove a profile')
-        # remp.add_argument('name', help='profile name')
-        # remp.set_defaults(profile_handler=self.remove)
-
-        # selp = subp.add_parser('select', help='select a machine')
-        # selp.add_argument('instance_id', help='machine instance ID')
-        # selp.set_defaults(machine_handler=self.select)
-
-    def handle_list(self, args):
-        repos = self.get_repositories(getattr(args, 'global'))
-        for repo in repos:
-            print(repo)
-
     def handle_add(self, args):
-        app = self.client.get_selected('app')
-        if getattr(args, 'global'):
-            repo = args.name
+        if args.name in self.get_repositories(True):
+            self.error('image by that name already exists')
+        if args.name[0] == '/':
+            repo = args.name[1:]
         else:
+            app = self.client.get_selected('app')
             repo = '%s-%s' % (app, args.name)
         self.create_repository(repo)
 
+    def handle_list(self, args):
+        repos = self.get_repositories(True)
+        for repo in repos:
+            print(repo)
+
     def handle_connect(self, args):
-        repos = self.get_repositories(getattr(args, 'global'))
+        repos = self.get_repositories(True)
         if args.name not in repos:
             self.error('image does not exist')
-        x = self.store.setdefault('images', {})
+        app = self.client.get_selected('app')
+        x = self.store.setdefault('images', {}).setdefault(app, {}) # HERE
         name = args.name
         if getattr(args, 'global'):
             name = '/' + name
@@ -78,12 +66,14 @@ class Image(Module):
 
     def handle_push(self, args):
         name = args.name
-        if getattr(args, 'global'):
-            name = '/' + name
-        local = self.store.get('images', {}).get(name, {}).get('local', None)
+        if name[0] == '/':
+            local = self.store.get('images', {}).get(name, {}).get('local', None)
+        else:
+            app = self.client.get_selected('app')
+            local = self.store.get('images', {}).get(app, {}).get(name, {}).get('local', None)
         if not local:
             self.error('image not connected')
-        uri = self.get_uri(args.name, getattr(args, 'global'))
+        uri = self.get_uri(args.name)
         self.run(
             'docker tag {} {}:latest'.format(
                 local,
@@ -123,16 +113,19 @@ class Image(Module):
             capture='json'
         )
         pre = app + '-'
+        results = []
         if _global:
-            return [d for d in data if '-' not in d]
-        else:
-            return [d[len(pre):] for d in data if d.startswith(pre)]
+            results += ['/' + d for d in data if '-' not in d]
+        results += [d[len(pre):] for d in data if d.startswith(pre)]
+        return results
 
-    def get_uri(self, name, _global=False):
+    def get_uri(self, name):
         app = self.client.get_selected('app')
         repo = name
-        if not _global:
+        if repo[0] != '/':
             repo = app + '-' + repo
+        else:
+            repo = repo[1:]
         data = self.run(
             '$aws ecr describe-repositories'
             ' --repository-name {}'
@@ -169,3 +162,13 @@ class Image(Module):
             mach['name'],
             '/root/pull.sh $region {}'.format(ctr['repo_uri'])
         )
+
+    def get_image_name(self, name):
+        if name[0] != '!':
+            if name[0] == '/':
+                img = self.get_uri(name[1:], _global=True)
+            else:
+                img = self.get_uri(name)
+        else:
+            img = name[1:]
+        return img

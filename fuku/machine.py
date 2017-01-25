@@ -1,3 +1,4 @@
+import re
 import json
 
 from .module import Module
@@ -23,6 +24,10 @@ class Machine(Module):
         addp = subp.add_parser('add', help='add a machine')
         addp.add_argument('name', help='machine name')
         addp.set_defaults(machine_handler=self.add)
+
+        addp = subp.add_parser('init')
+        addp.add_argument('name', help='machine name')
+        addp.set_defaults(machine_handler=self.handle_init_swarm)
 
         sshp = subp.add_parser('ssh', help='ssh to a machine')
         sshp.add_argument('name', nargs='?', help='machine name')
@@ -199,7 +204,8 @@ class Machine(Module):
         self.tag_instance(inst_id, {
             'Name': '%s-%s' % (app, name),
             'name': name,
-            'app': app
+            'app': app,
+            'manager': 'true'
         })
         self.wait(inst_id)
         self.run(
@@ -211,6 +217,32 @@ class Machine(Module):
             )
         )
         alloc_id, public_ip = self.allocate_address(inst_id)
+        self.init_swarm(args.name)
+
+    def handle_init_swarm(self, args):
+        self.init_swarm(args.name)
+
+    def init_swarm(self, name):
+        app = self.client.get_selected('app')
+        inst = self.get_instance(name, app)
+        ip = inst['PrivateIpAddress']
+        response = self.ssh_run(
+            'docker swarm init --advertise-addr {}'.format(ip),
+            name=name,
+            capture='text'
+        )
+        try:
+            token = re.search(r'token\s+(.*)\s+\\', response).group(1)
+            port = re.search(r':(\d\d\d\d)', response).group(1)
+        except AttributeError:
+            self.error('init failed')
+        self.tag_instance(inst['InstanceId'], {
+            'swarmtoken': token,
+            'swarmport': port
+        })
+        self.ssh_run(
+            'docker network create --driver overlay all'
+        )
 
     def remove(self, args):
         # TODO: Give an option to back out. Maybe even two.

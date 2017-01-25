@@ -24,8 +24,7 @@ class Postgres(Module):
         p.set_defaults(postgres_handler=self.handle_add)
 
         p = subp.add_parser('connect', help='connect to a task')
-        p.add_argument('task')
-        p.add_argument('container')
+        p.add_argument('target')
         p.set_defaults(postgres_handler=self.handle_connect)
 
         p = subp.add_parser('select', help='select a postgres database')
@@ -120,7 +119,7 @@ class Postgres(Module):
         env = {
             'DATABASE_URL': self.get_url()
         }
-        task_mod.env_set(args.task, args.container, env)
+        task_mod.env_set(args.target, env)
 
     def handle_select(self, args):
         if args.show:

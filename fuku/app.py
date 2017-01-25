@@ -168,6 +168,18 @@ class App(Module):
             ignore_errors=True
         )
 
+    def create_cluster(self, name):
+        self.run(
+            '$aws ecs create-cluster'
+            ' --cluster-name {}'.format(name)
+        )
+
+    def delete_cluster(self, name):
+        self.run(
+            '$aws ecs delete-cluster'
+            ' --cluster {}'.format(name)
+        )
+
     def config(self):
         cfg = {}
         app = self.get_selected()
@@ -186,6 +198,7 @@ class App(Module):
         self.create_app_group(name)
         self.create_key_pair(name)
         self.create_security_group(name)
+        # self.create_cluster(name)
 
     def remove(self, args):
         name = args.name
@@ -199,6 +212,7 @@ class App(Module):
         self.delete_security_group(name)
         self.delete_app_group(name)
         self.delete_key_pair(name)
+        # self.delete_cluster(name)
 
     def select(self, args):
         if args.show:

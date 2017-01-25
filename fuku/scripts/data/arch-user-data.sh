@@ -4,18 +4,10 @@ exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 # NOTE: Because we use Python's Template substitution on this file, all dollar signs
 # must be escaped with another dollar sign: i.e. $$.
 
-# Set the bucket to be used for agent in our bashrc.
-echo FUKU_BUCKET=$bucket >> /etc/environment
-echo FUKU_APP=$app >> /etc/environment
-echo FUKU_MACHINE=$machine >> /etc/environment
-echo FUKU_REGION=$region >> /etc/environment
-
 # Prepare some packages.
 pacman -Syy
-pacman --noconfirm -S docker unzip python-pip git
-
-# Install awscli and credentials for various AWS purposes.
-pip install awscli filelock docker fuku
+pacman --noconfirm -S docker python-pip unzip
+pip install awscli
 
 # Configure docker and launch.
 groupadd docker
@@ -50,28 +42,3 @@ WantedBy=multi-user.target
 EOF
 systemctl enable journald-cloudwatch-logs.service
 systemctl start journald-cloudwatch-logs.service
-
-# # Setup some default keys to use before we have a DNS, and
-# # haven't run certbot yet.
-# mkdir -p /etc/letsencrypt/default
-# openssl req -x509 -newkey rsa:2048 -keyout /etc/letsencrypt/default/privkey.key -out /etc/letsencrypt/default/cert.pem -nodes -subj '/CN=localhost'
-# cat /etc/letsencrypt/default/privkey.key /etc/letsencrypt/default/cert.pem > /etc/letsencrypt/default/fullchain.pem
-
-cat > /etc/systemd/system/fuku.service <<EOF
-[Unit]
-Description=fuku
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=simple
-EnvironmentFile=/etc/environment
-ExecStart=/usr/bin/fuku-agent run
-ExecReload=/usr/bin/fuku-agent run
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl enable fuku.service
