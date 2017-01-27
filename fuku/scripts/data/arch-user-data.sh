@@ -6,40 +6,38 @@ exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
 # Prepare some packages.
 pacman -Syy
-pacman --noconfirm -S docker python-pip # unzip
+pacman --noconfirm -S docker python-pip iotop # unzip
 pip install awscli
 
 # Configure docker and launch.
 groupadd docker
-sed -i 's/dockerd/dockerd --log-driver=journald/g' /usr/lib/systemd/system/docker.service
+sed -i 's!dockerd!dockerd --log-driver=awslogs --log-opt awslogs-region=$region --log-opt awslogs-group=/$app --log-opt awslogs-stream=$machine!g' /usr/lib/systemd/system/docker.service
 systemctl enable docker
 systemctl start docker
 
-# # Install AWS logging from journald.
-# curl -sOL https://github.com/saymedia/journald-cloudwatch-logs/releases/download/v0.0.1/journald-cloudwatch-logs-linux.zip && unzip journald-cloudwatch-logs-linux.zip
-# cp journald-cloudwatch-logs/journald-cloudwatch-logs /usr/bin/
-# mkdir -p /var/lib/journald-cloudwatch-logs
-# rm -rf journald-cloudwatch-logs
-# cat > /etc/journald-cloudwatch-logs.conf <<EOF
-# log_group = "/$app"
-# log_stream = "/$machine"
-# log_priority = "info"
-# state_file = "/var/lib/journald-cloudwatch-logs/state"
-# EOF
-# cat > /etc/systemd/system/journald-cloudwatch-logs.service <<EOF
-# [Unit]
-# Description=journald-cloudwatch-logs
-# Wants=basic.target
-# After=basic.target network.target
+# Make logs a bit more efficient.
+cat > /etc/systemd/journald.conf <<EOF
+[Journal]
+Storage=volatile
+RuntimeMaxUse=10M
+EOF
 
-# [Service]
-# ExecStart=/usr/bin/journald-cloudwatch-logs /etc/journald-cloudwatch-logs.conf
-# KillMode=process
-# Restart=on-failure
-# RestartSec=42s
+# Install a plugin for collectd to allow us to montior docker containers.
+pacman --noconfirm -S collectd git
+git clone https://github.com/signalfx/docker-collectd-plugin /usr/share/collectd/docker-collectd-plugin
+pip install backports.ssl_match_hostname
+pip install -r /usr/share/collectd/docker-collectd-plugin/requirements.txt
 
-# [Install]
-# WantedBy=multi-user.target
-# EOF
-# systemctl enable journald-cloudwatch-logs.service
-# systemctl start journald-cloudwatch-logs.service
+# Install a plugin to allow pushing to AWS metrics.
+git clone https://github.com/awslabs/collectd-cloudwatch /usr/share/collectd/collectd-cloudwatch
+sed -i 's!PluginInstance!Container!g' /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/modules/metricdata.py
+cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config <<EOF
+region="$region"
+host="$machine"
+whitelist_pass_through=False
+debug=False
+EOF
+cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config <<EOF
+.*.1-cpu.percent-
+.*.1-memory.percent-
+EOF

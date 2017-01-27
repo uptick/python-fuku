@@ -32,8 +32,10 @@ class Task(Module):
         p.set_defaults(task_handler=self.handle_list)
 
         p = subp.add_parser('env', help='update environment')
-        p.add_argument('name')
+        p.add_argument('--name', '-n')
         ssp = p.add_subparsers()
+        p = ssp.add_parser('list')
+        p.set_defaults(task_handler=self.handle_env_list)
         p = ssp.add_parser('set')
         p.add_argument('values', action=StoreKeyValuePair, nargs='+', help='key value pairs')
         p.set_defaults(task_handler=self.handle_env_set)
@@ -120,7 +122,24 @@ class Task(Module):
             print(json.dumps(ctr_def, indent=2))
         else:
             for d in task['containerDefinitions']:
-                print(d['name'])
+                if d['name'] != '_':
+                    print(d['name'])
+
+    def handle_env_list(self, args):
+        name = args.name
+        task_name = self.get_task_name()
+        task = self.get_task(task_name)
+        if not name:
+            name = '_'
+            try:
+                ctr_def = self.get_container_definition(task, name)
+            except IndexError:
+                return
+        else:
+            ctr_def = self.get_container_definition(task, name)
+        env = env_to_dict(ctr_def['environment'])
+        for k, v in env.items():
+            print('%s=%s' % (k, v))
 
     def handle_env_set(self, args):
         self.env_set(args.name, args.values)
@@ -128,7 +147,21 @@ class Task(Module):
     def env_set(self, name, values):
         task_name = self.get_task_name()
         task = self.get_task(task_name)
-        ctr_def = self.get_container_definition(task, name)
+        if not name:
+            name = '_'
+            try:
+                ctr_def = self.get_container_definition(task, name)
+            except IndexError:
+                img_mod = self.client.get_module('image')
+                ctr_def = {
+                    'name': name,
+                    'image': img_mod.get_uri('/fuku'),
+                    'environment': [],
+                    'memoryReservation': 1  # required,
+                }
+                task['containerDefinitions'].append(ctr_def)
+        else:
+            ctr_def = self.get_container_definition(task, name)
         env = env_to_dict(ctr_def['environment'])
         env.update(values)
         env = dict_to_env(env)
@@ -288,6 +321,5 @@ class Task(Module):
             )
         )
 
-    def get_task_name(self):
-        app = self.client.get_selected('app')
-        return app
+    def get_task_name(self, name=None):
+        return self.client.get_selected('app')

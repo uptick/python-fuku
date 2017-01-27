@@ -35,6 +35,14 @@ class Postgres(Module):
         p = subp.add_parser('psql')
         p.set_defaults(postgres_handler=self.handle_psql)
 
+        p = subp.add_parser('dump')
+        p.add_argument('output')
+        p.set_defaults(postgres_handler=self.handle_dump)
+
+        p = subp.add_parser('restore')
+        p.add_argument('input')
+        p.set_defaults(postgres_handler=self.handle_restore)
+
     def handle_list(self, args):
         app = self.client.get_selected('app')
         if args.name:
@@ -150,6 +158,40 @@ class Postgres(Module):
                 endpoint['Port'],
                 name,
                 name
+            ),
+            capture=False,
+            env={'PGPASSFILE': path}
+        )
+
+    def handle_dump(self, args):
+        app = self.client.get_selected('app')
+        name = self.get_selected()
+        path = os.path.join(get_rc_path(), app, '%s.pgpass' % name)
+        endpoint = self.get_endpoint(name)
+        self.run(
+            'pg_dump -Fc --no-acl --no-owner -h {} -p {} -U {} -d {} -f {}'.format(
+                endpoint['Address'],
+                endpoint['Port'],
+                name,
+                name,
+                args.output
+            ),
+            capture=False,
+            env={'PGPASSFILE': path}
+        )
+
+    def handle_restore(self, args):
+        app = self.client.get_selected('app')
+        name = self.get_selected()
+        path = os.path.join(get_rc_path(), app, '%s.pgpass' % name)
+        endpoint = self.get_endpoint(name)
+        self.run(
+            'pg_restore --clean --no-acl --no-owner -h {} -p {} -U {} -d {} {}'.format(
+                endpoint['Address'],
+                endpoint['Port'],
+                name,
+                name,
+                args.input
             ),
             capture=False,
             env={'PGPASSFILE': path}

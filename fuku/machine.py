@@ -49,6 +49,10 @@ class Machine(Module):
         selp.add_argument('--show', '-s', action='store_true', help='show currently selected')
         selp.set_defaults(machine_handler=self.select)
 
+        p = subp.add_parser('stats', help='show streaming stats')
+        p.add_argument('name', nargs='?', help='machine name')
+        p.set_defaults(machine_handler=self.handle_stats)
+
         p = subp.add_parser('reboot', help='reboot a machine')
         p.add_argument('name', nargs='?', help='machine name')
         p.set_defaults(machine_handler=self.handle_reboot)
@@ -292,6 +296,9 @@ class Machine(Module):
                 except KeyError:
                     pass
             self.clear_parent_selections()
+
+    def handle_stats(self, args):
+        self.ssh_run('docker stats', args.name)
 
     def ssh(self, args):
         self.ssh_run('', args.name)

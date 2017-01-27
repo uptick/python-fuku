@@ -35,6 +35,15 @@
         "s3:DeleteObject"
       ],
       "Resource": ["arn:aws:s3:::$bucket/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData"
+      ],
+      "Resource": [
+        "*"
+      ]
     }
   ]
 }

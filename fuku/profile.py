@@ -116,6 +116,12 @@ class Profile(Module):
         )
         self.delete_role(user, role_name)
 
+    def create_dummy_repo(self):
+        self.run(
+            '$aws ecr create-repository'
+            ' --repository-name fuku'
+        )
+
     def configure(self, args):
         if args.bucket:
             bucket = args.bucket
@@ -130,6 +136,7 @@ class Profile(Module):
         name = args.name
         # self.run('aws configure --profile {}'.format(name))
         self.create_ec2_role(name)
+        self.create_dummy_repo()
 
     def remove(self, args):
         name = args.name

@@ -36,7 +36,8 @@ class Image(Module):
         if args.name in self.get_repositories(True):
             self.error('image by that name already exists')
         if args.name[0] == '/':
-            repo = args.name[1:]
+            # TODO: Check the structure?
+            repo = args.name[1:].replace('/', '-')
         else:
             app = self.client.get_selected('app')
             repo = '%s-%s' % (app, args.name)

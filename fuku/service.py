@@ -1,7 +1,5 @@
-import shlex
-
 from .module import Module
-from .utils import env_to_string, ports_to_string
+from .utils import env_to_string, ports_to_string, env_to_dict, dict_to_env
 
 
 class Service(Module):
@@ -37,6 +35,10 @@ class Service(Module):
     def add(self, task_name, replicas=None, update=False):
         task_mod = self.client.get_module('task')
         task = task_mod.get_task(task_mod.get_task_name())
+        try:
+            env = env_to_dict(task_mod.get_container_definition(task, '_')['environment'])
+        except IndexError:
+            env = {}
         ctr_def = task_mod.get_container_definition(task, task_name)
         cmd = '$dollar(aws --region $region ecr get-login);'
         cmd += ' docker pull {};'.format(ctr_def['image'])
@@ -47,8 +49,9 @@ class Service(Module):
             cmd += ' --name {}'.format(ctr_def['name'])
         if replicas:
             cmd += ' --replicas {}'.format(replicas)
+        env.update(env_to_dict(ctr_def.get('environment', [])))
         cmd += env_to_string(
-            ctr_def.get('environment', []),
+            dict_to_env(env),
             opt='--env-add' if update else '-e'
         )
         cmd += ports_to_string(
