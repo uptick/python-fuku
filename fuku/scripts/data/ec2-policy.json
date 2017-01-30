@@ -8,7 +8,7 @@
         "logs:CreateLogGroup",
         "logs:CreateLogStream",
         "logs:PutLogEvents",
-        "logs:DescribeLogStreams",
+        "logs:DescribeLogStreams"
       ],
       "Resource": "arn:aws:logs:*:*:*"
     },

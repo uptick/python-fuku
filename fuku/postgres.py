@@ -24,7 +24,7 @@ class Postgres(Module):
         p.set_defaults(postgres_handler=self.handle_add)
 
         p = subp.add_parser('connect', help='connect to a task')
-        p.add_argument('target')
+        p.add_argument('--target', '-t')
         p.set_defaults(postgres_handler=self.handle_connect)
 
         p = subp.add_parser('select', help='select a postgres database')
@@ -186,7 +186,7 @@ class Postgres(Module):
         path = os.path.join(get_rc_path(), app, '%s.pgpass' % name)
         endpoint = self.get_endpoint(name)
         self.run(
-            'pg_restore --clean --no-acl --no-owner -h {} -p {} -U {} -d {} {}'.format(
+            'pg_restore -n public --clean --no-acl --no-owner -h {} -p {} -U {} -d {} {}'.format(
                 endpoint['Address'],
                 endpoint['Port'],
                 name,

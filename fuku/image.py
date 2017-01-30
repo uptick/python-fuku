@@ -53,11 +53,8 @@ class Image(Module):
         if args.name not in repos:
             self.error('image does not exist')
         app = self.client.get_selected('app')
-        x = self.store.setdefault('images', {}).setdefault(app, {}) # HERE
-        name = args.name
-        if getattr(args, 'global'):
-            name = '/' + name
-        x = x.setdefault(name, {})
+        x = self.store.setdefault('images', {}).setdefault(app, {})
+        x = x.setdefault(args.name, {})
         if args.show:
             local = x.get('local', None)
             if local:

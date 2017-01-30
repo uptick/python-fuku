@@ -1,5 +1,7 @@
+import re
 import os
 import sys
+from contextlib import contextmanager
 import subprocess
 
 from fabric.operations import (
@@ -113,6 +115,13 @@ def local(command, capture=False, shell=None, ignore_errors=False, env=None):
 run = local
 
 
+@contextmanager
+def already_exists(expr):
+    try:
+        yield
+    except Exception as e:
+        if not re.search(expr, str(e)):
+            raise
 
 # from fabric.api import task, run as fabrun
 

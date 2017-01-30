@@ -1,0 +1,37 @@
+
+* SSL volumes for speediness.
+
+* Manage IP addresses (in machine/node); detach, attach, delete, etc.
+
+* Need to restart docker after overlay network created?
+
+* Optional metrics; add, remove, list, etc.
+
+* Clear old task revisions automatically.
+
+* Command error recovery, reliability; catch signals, etc.
+
+* Allow overriding commands.
+
+* Remove local DB entries when removing other things.
+
+* App/user level task settings.
+
+* Maintenance mode.
+
+* Container error reporting.
+
+* Versioning/rollbacks.
+
+* Pause machine.
+
+* When removing something, need to check all future modules for dependents. Perhaps
+  supply a recursive removal.
+
+* Adding new nodes.
+
+* Rename machine to node.
+
+* Use boto instead of command line.
+
+* Manage credentials.

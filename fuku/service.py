@@ -1,5 +1,8 @@
 from .module import Module
-from .utils import env_to_string, ports_to_string, env_to_dict, dict_to_env
+from .utils import (
+    env_to_string, ports_to_string, env_to_dict, dict_to_env,
+    mounts_to_string, volumes_to_dict
+)
 
 
 class Service(Module):
@@ -60,6 +63,11 @@ class Service(Module):
         )
         if not update:
             cmd += ' --network all'
+        cmd += mounts_to_string(
+            ctr_def.get('mountPoints', {}),
+            self.get_mounts(task_name),
+            opt='--mount-add' if update else '--mount'
+        )
         if update:
             cmd += ' --image '
         else:
@@ -76,6 +84,7 @@ class Service(Module):
         if update:
             cmd += ' ' + ctr_def['name']
         cmd = '\'' + cmd + '\''
+        self.create_volumes(volumes_to_dict(task.get('volumes', [])))
         mach_mod = self.client.get_module('machine')
         mach = mach_mod.get_selected()
         try:
@@ -99,11 +108,18 @@ class Service(Module):
     def handle_list(self, args):
         mach_mod = self.client.get_module('machine')
         mach = mach_mod.get_selected()
-        mach_mod.ssh_run(
-            'docker service ls',
-            name=mach,
-            capture=False
-        )
+        if args.task:
+            mach_mod.ssh_run(
+                'docker service inspect {}'.format(args.task),
+                name=mach,
+                capture=False
+            )
+        else:
+            mach_mod.ssh_run(
+                'docker service ls',
+                name=mach,
+                capture=False
+            )
 
     def handle_logs(self, args):
         mach_mod = self.client.get_module('machine')
@@ -123,3 +139,35 @@ class Service(Module):
     def get_container_definition(self, task, name):
         task_mod = self.client.get_module('task')
         return task_mod.get_container_definition(task, name)
+
+    def create_volumes(self, volumes):
+        mach_mod = self.client.get_module('machine')
+        mach = mach_mod.get_selected()
+        for name, src in volumes.items():
+            cmd = 'docker volume create --name {}'.format(name)
+            try:
+                mach_mod.ssh_run(
+                    cmd,
+                    name=mach,
+                    capture='discard'
+                )
+            except self.CommandError:
+                pass
+
+    def get_mounts(self, task):
+        mach_mod = self.client.get_module('machine')
+        mach = mach_mod.get_selected()
+        try:
+            data = mach_mod.ssh_run(
+                'docker service inspect {}'.format(task),
+                name=mach,
+                capture='json'
+            )
+        except self.CommandError:
+            data = None
+        if data:
+            mounts = data[0]['Spec']['TaskTemplate']['ContainerSpec'].get('Mounts', [])
+            mounts = dict([(m['Source'], m['Target']) for m in mounts])
+            return mounts
+        else:
+            return {}

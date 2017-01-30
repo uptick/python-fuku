@@ -39,6 +39,20 @@ class SSL(Module):
             '443': '443'
         }
         task_mod.ports_set('ssl', ports)
+        volumes = {
+            'letsencrypt': {
+                'container': '/etc/letsencrypt'
+            },
+            'letsencrypt-backups': {
+                'container': '/var/lib/letsencrypt'
+            },
+            'dhparam-cache': {
+                'container': '/cache'
+            }
+        }
+        task_mod.volume_add('ssl', 'letsencrypt', '/etc/letsencrypt')
+        task_mod.volume_add('ssl', 'letsencrypt-backups', '/var/lib/letsencrypt')
+        task_mod.volume_add('ssl', 'dhparam-cache', '/cache')
         # ctr = args.upstream.split(':')[0]
         # task_mod.link('ssl', ctr)
         # TODO: Remove reverse link.

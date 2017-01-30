@@ -38,6 +38,6 @@ whitelist_pass_through=False
 debug=False
 EOF
 cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config <<EOF
-.*.1-cpu.percent-
-.*.1-memory.percent-
 EOF
+# .*.1-cpu.percent-
+# .*.1-memory.percent-

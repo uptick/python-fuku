@@ -1,6 +1,7 @@
 import os
 from configparser import ConfigParser
 
+from .runner import already_exists
 from .module import Module
 
 
@@ -42,19 +43,23 @@ class Profile(Module):
         return cfg
 
     def create_role(self, user, name, policies=[]):
-        self.run(
-            '$aws iam create-role'
-            ' --profile {user}'
-            ' --role-name {name}'
-            ' --assume-role-policy-document'
-            ' file://{file}'.format(
-                user=user,
-                name=name,
-                file=self.data_path('ecs-assume-role.json')
-            ),
-        )
+        with already_exists(r'Role with name ec2-role already exists'):
+            self.run(
+                '$aws iam create-role'
+                ' --profile {user}'
+                ' --role-name {name}'
+                ' --assume-role-policy-document'
+                ' file://{file}'.format(
+                    user=user,
+                    name=name,
+                    file=self.data_path('ecs-assume-role.json')
+                ),
+            )
         for policy in policies:
-            ctx = self.merged_config({'name': name})
+            ctx = self.merged_config({
+                'name': name,
+                'bucket': self.store['bucket']
+            })
             with self.template_file('%s.json' % policy, ctx) as policy_file:
                 self.run(
                     '$aws iam put-role-policy '
@@ -83,14 +88,15 @@ class Profile(Module):
         role_name = 'ec2-role'
         inst_name = 'ec2-profile'
         self.create_role(user, role_name, ['ec2-policy'])
-        self.run(
-            '$aws iam create-instance-profile '
-            ' --profile {user}'
-            ' --instance-profile-name {inst_name}'.format(
-                user=user,
-                inst_name=inst_name
+        with already_exists(r'Instance Profile ec2-profile already exists'):
+            self.run(
+                '$aws iam create-instance-profile '
+                ' --profile {user}'
+                ' --instance-profile-name {inst_name}'.format(
+                    user=user,
+                    inst_name=inst_name
+                )
             )
-        )
         self.run(
             '$aws iam add-role-to-instance-profile'
             ' --profile {user}'
@@ -117,6 +123,8 @@ class Profile(Module):
         self.delete_role(user, role_name)
 
     def create_dummy_repo(self):
+        """ Need this for app-level environment.
+        """
         self.run(
             '$aws ecr create-repository'
             ' --repository-name fuku'
@@ -134,6 +142,8 @@ class Profile(Module):
 
     def add(self, args):
         name = args.name
+        if not self.store.get('bucket', None):
+            self.error('must set bucket first')
         # self.run('aws configure --profile {}'.format(name))
         self.create_ec2_role(name)
         self.create_dummy_repo()
@@ -150,6 +160,10 @@ class Profile(Module):
         if name not in cfg.sections():
             self.error('no profile named "{}"'.format(name))
         self.store['selected'] = name
+        try:
+            del self.store['bucket']
+        except KeyError:
+            pass
         self.clear_parent_selections()
 
     def get_selected(self, fail=True):

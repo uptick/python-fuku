@@ -5,6 +5,8 @@ from .utils import (
     StoreKeyValuePair, StorePortPair,
     env_to_dict, dict_to_env,
     ports_to_dict, dict_to_ports,
+    volumes_to_dict, dict_to_volumes,
+    mounts_to_dict, dict_to_mounts
 )
 
 
@@ -52,6 +54,18 @@ class Task(Module):
         p = ssp.add_parser('unset')
         p.add_argument('values', nargs='+', help='ports')
         p.set_defaults(task_handler=self.handle_ports_unset)
+
+        p = subp.add_parser('volume', help='manage volumes')
+        p.add_argument('name')
+        ssp = p.add_subparsers()
+        p = ssp.add_parser('add')
+        p.add_argument('volume')
+        p.add_argument('destination')
+        p.add_argument('--source', '-s')
+        p.set_defaults(task_handler=self.handle_volume_add)
+        p = ssp.add_parser('remove')
+        p.add_argument('volume')
+        p.set_defaults(task_handler=self.handle_volume_remove)
 
         p = subp.add_parser('command', help='set command')
         p.add_argument('name')
@@ -213,6 +227,42 @@ class Task(Module):
         ctr_def['portMappings'] = ports
         self.register_task(task)
 
+    def handle_volume_add(self, args):
+        self.volume_add(args.name, args.volume, args.destination, args.source)
+
+    def volume_add(self, ctr_name, vol_name, dst, src=None):
+        task_name = self.get_task_name()
+        task = self.get_task(task_name)
+        ctr_def = self.get_container_definition(task, ctr_name)
+        volumes = volumes_to_dict(task['volumes'])
+        volumes[vol_name] = src
+        task['volumes'] = dict_to_volumes(volumes)
+        mounts = mounts_to_dict(ctr_def['mountPoints'])
+        mounts[vol_name] = dst
+        ctr_def['mountPoints'] = dict_to_mounts(mounts)
+        self.register_task(task)
+
+    def handle_volume_remove(self, args):
+        self.volume_remove(args.name, args.volume)
+
+    def volume_remove(self, ctr_name, vol_name):
+        task_name = self.get_task_name()
+        task = self.get_task(task_name)
+        ctr_def = self.get_container_definition(task, ctr_name)
+        volumes = volumes_to_dict(task['volumes'])
+        try:
+            del volumes[vol_name]
+        except KeyError:
+            pass
+        task['volumes'] = dict_to_volumes(volumes)
+        mounts = mounts_to_dict(ctr_def['mountPoints'])
+        try:
+            del mounts[vol_name]
+        except KeyError:
+            pass
+        ctr_def['mountPoints'] = dict_to_mounts(mounts)
+        self.register_task(task)
+
     def handle_command(self, args):
         task_name = self.get_task_name()
         task = self.get_task(task_name)
@@ -311,7 +361,7 @@ class Task(Module):
         return ctr_def
 
     def register_task(self, task):
-        self.run(
+        cmd = (
             '$aws ecs register-task-definition'
             ' --family {}'
             ' --container-definitions \'{}\''
@@ -320,6 +370,12 @@ class Task(Module):
                 json.dumps(task['containerDefinitions'])
             )
         )
+        volumes = task.get('volumes', [])
+        if volumes:
+            cmd += ' --volumes \'{}\''.format(
+                json.dumps(volumes)
+            )
+        self.run(cmd)
 
     def get_task_name(self, name=None):
         return self.client.get_selected('app')

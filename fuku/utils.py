@@ -63,5 +63,51 @@ def ports_to_string(val, opt='-p'):
         return ''
 
 
+def volumes_to_dict(volumes):
+    res = {}
+    for info in volumes:
+        res[info['name']] = info.get('host', {}).get('sourcePath', None)
+    return res
+
+
+def dict_to_volumes(val):
+    volumes = []
+    for k, v in val.items():
+        item = {'name': k}
+        if v:
+            item['host'] = {'sourcePath': v}
+        volumes.append(item)
+    return volumes
+
+
+def mounts_to_dict(mounts):
+    res = {}
+    for info in mounts:
+        res[info['sourceVolume']] = info['containerPath']
+    return res
+
+
+def dict_to_mounts(val):
+    mounts = []
+    for k, v in val.items():
+        mounts.append({'sourceVolume': k, 'containerPath': v})
+    return mounts
+
+
+def mounts_to_string(val, existing={}, opt='--mount'):
+    if val:
+        mounts = mounts_to_dict(val)
+        elems = []
+        for src, dst in mounts.items():
+            if src not in existing:
+                elems.append('%s src=%s,dst=%s' % (opt, src, dst))
+        for src, dst in existing.items():
+            if src not in mounts.keys():
+                elems.append('--mount-rm %s' % dst)
+        return ' ' + ' '.join(elems)
+    else:
+        return ''
+
+
 def gen_secret(length=64):
     return ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(length))

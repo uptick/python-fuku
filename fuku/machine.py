@@ -222,7 +222,6 @@ class Machine(Module):
                 name
             )
         )
-        self.init_swarm(args.name)
         if args.public:
             alloc_id, public_ip = self.allocate_address(inst_id)
         self.init_swarm(args.name)
@@ -249,7 +248,9 @@ class Machine(Module):
             'swarmport': port
         })
         self.ssh_run(
-            'docker network create --driver overlay all'
+            'docker network create --driver overlay all',
+            name=name,
+            capture='discard'
         )
 
     def remove(self, args):

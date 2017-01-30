@@ -15,7 +15,7 @@ class Redis(Module):
         p.set_defaults(redis_handler=self.handle_add)
 
         p = subp.add_parser('connect')
-        p.add_argument('target')
+        p.add_argument('--target', '-t')
         p.set_defaults(redis_handler=self.handle_connect)
 
     def handle_add(self, args):
