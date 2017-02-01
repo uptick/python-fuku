@@ -33,6 +33,8 @@ class Image(Module):
         p.set_defaults(image_handler=self.handle_push)
 
     def handle_add(self, args):
+        if args.name == 'fuku':
+            self.error('reserved name')
         if args.name in self.get_repositories(True):
             self.error('image by that name already exists')
         if args.name[0] == '/':
@@ -110,6 +112,7 @@ class Image(Module):
             ' --query \'repositories[*].repositoryName\'',
             capture='json'
         )
+        data = [d for d in data if d != 'fuku']
         pre = app + '-'
         results = []
         if _global:

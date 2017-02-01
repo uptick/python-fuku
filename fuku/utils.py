@@ -34,7 +34,7 @@ def dict_to_env(val):
 def env_to_string(env, opt='-e'):
     if env:
         return ' ' + ' '.join([
-            '%s %s=%s' % (opt, k, v) for k, v in env_to_dict(env).items()
+            '%s %s="%s"' % (opt, k, v) for k, v in env_to_dict(env).items()
         ])
     else:
         return ''

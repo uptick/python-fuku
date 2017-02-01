@@ -23,7 +23,7 @@ class Machine(Module):
 
         addp = subp.add_parser('add', help='add a machine')
         addp.add_argument('name', help='machine name')
-        addp.add_argument('--public' '-p', action='store_true',
+        addp.add_argument('--public', '-p', action='store_true',
                           help='assign public IP')
         addp.set_defaults(machine_handler=self.add)
 
