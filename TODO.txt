@@ -1,6 +1,13 @@
 
 * SSL volumes for speediness.
 
+* Need to remove services and add them back in to get them to update correctly, or is it
+  just taking too long to perform the update? Perhaps need to specify update now?
+
+* Need to restart SSL when updating upstream endpoints.
+
+* Update all services based on an image.
+
 * Manage IP addresses (in machine/node); detach, attach, delete, etc.
 
 * Need to restart docker after overlay network created?

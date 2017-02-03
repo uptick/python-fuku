@@ -31,13 +31,50 @@ pip install -r /usr/share/collectd/docker-collectd-plugin/requirements.txt
 # Install a plugin to allow pushing to AWS metrics.
 git clone https://github.com/awslabs/collectd-cloudwatch /usr/share/collectd/collectd-cloudwatch
 sed -i 's!PluginInstance!Container!g' /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/modules/metricdata.py
-cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config <<EOF
+cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config/plugin.conf <<EOF
 region="$region"
-host="$machine"
+host="$app-$machine"
 whitelist_pass_through=False
 debug=False
 EOF
-cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config <<EOF
+cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config/whitelist.conf <<EOF
 EOF
 # .*.1-cpu.percent-
 # .*.1-memory.percent-
+
+# Write the collectd configuration.
+cat > /etc/collectd.conf <<EOF
+TypesDB "/usr/share/collectd/docker-collectd-plugin/dockerplugin.db"
+
+LoadPlugin cpu
+LoadPlugin interface
+LoadPlugin load
+LoadPlugin memory
+LoadPlugin python
+LoadPlugin unixsock
+
+<Plugin python>
+  ModulePath "/usr/lib/python3.6/site-packages"
+  ModulePath "/usr/share/collectd/docker-collectd-plugin"
+  Import "dockerplugin"
+  <Module dockerplugin>
+    BaseURL "unix://var/run/docker.sock"
+    Timeout 3
+  </Module>
+</Plugin>
+
+<Plugin python>
+  ModulePath "/usr/share/collectd/collectd-cloudwatch/src"
+  LogTraces true
+  Interactive false
+  Import "cloudwatch_writer"
+</Plugin>
+
+<Plugin unixsock>
+  SocketFile "/var/run/collectd-unixsock"
+</Plugin>
+EOF
+
+# Startup metrics collection.
+systemctl start collectd
+systemctl enable collectd

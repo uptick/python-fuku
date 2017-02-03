@@ -110,7 +110,7 @@ class Module(object):
             env={}):
         cfg = self.merged_config(cfg, use_self)
         final = subs(cmd, cfg)
-        # print(final)
+        print(final)
         env_copy = os.environ.copy()
         env_copy.update(env)
         output = run(

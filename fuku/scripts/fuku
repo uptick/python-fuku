@@ -12,12 +12,14 @@ from fuku.service import Service
 from fuku.postgres import Postgres
 from fuku.ssl import SSL
 from fuku.redis import Redis
+from fuku.metrics import Metrics
 
 
 if __name__ == '__main__':
     cli = Client()
     cli.add_modules(
         Profile, Region, App, Machine, Image,
-        Task, Service, Postgres, SSL, Redis
+        Task, Service, Postgres, SSL, Redis,
+        Metrics
     )
     cli.entry()

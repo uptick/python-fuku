@@ -21,6 +21,7 @@ class Postgres(Module):
 
         p = subp.add_parser('add', help='add a postgres database')
         p.add_argument('name')
+        p.add_argument('--backup', '-b', default=7, type=int, help='number of days to retain backups')
         p.set_defaults(postgres_handler=self.handle_add)
 
         p = subp.add_parser('connect', help='connect to a task')
@@ -86,14 +87,15 @@ class Postgres(Module):
             ' --allocated-storage 5'
             ' --master-username $name'
             ' --master-user-password $password'
-            ' --backup-retention-period 0'
+            ' --backup-retention-period {backup}'
             ' --vpc-security-group-ids $security_group'
             ' --tags Key=app,Value=$app'
             ' --query DBInstance',
             {
                 'name': args.name,
                 'inst_id': inst_id,
-                'password': password
+                'password': password,
+                'backup': args.backup
             }
         )
         self.run(
