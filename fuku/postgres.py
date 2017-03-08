@@ -87,7 +87,7 @@ class Postgres(Module):
             ' --allocated-storage 5'
             ' --master-username $name'
             ' --master-user-password $password'
-            ' --backup-retention-period {backup}'
+            ' --backup-retention-period $backup'
             ' --vpc-security-group-ids $security_group'
             ' --tags Key=app,Value=$app'
             ' --query DBInstance',
@@ -95,7 +95,7 @@ class Postgres(Module):
                 'name': args.name,
                 'inst_id': inst_id,
                 'password': password,
-                'backup': args.backup
+                'backup': str(args.backup)
             }
         )
         self.run(
@@ -132,6 +132,9 @@ class Postgres(Module):
         task_mod.env_set(args.target, env)
 
     def handle_select(self, args):
+        self.select(args)
+
+    def select(self, args):
         if args.show:
             sel = self.get_selected(fail=False)
             if sel:

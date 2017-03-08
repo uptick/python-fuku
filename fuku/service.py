@@ -22,6 +22,7 @@ class Service(Module):
 
         p = subp.add_parser('remove')
         p.add_argument('task')
+        p.add_argument('--volumes', '-v', action='store_true', help='remove volumes')
         p.set_defaults(service_handler=self.handle_remove)
 
         p = subp.add_parser('list')
@@ -69,6 +70,8 @@ class Service(Module):
             opt='--mount-add' if update else '--mount'
         )
         if update:
+            cmd += ' --force'
+        if update:
             cmd += ' --image '
         else:
             cmd += ' '
@@ -104,6 +107,10 @@ class Service(Module):
             name=mach,
             capture='discard'
         )
+        if args.volumes:
+            task_mod = self.client.get_module('task')
+            task = task_mod.get_task(task_mod.get_task_name())
+            self.delete_volumes(volumes_to_dict(task.get('volumes', [])))
 
     def handle_list(self, args):
         mach_mod = self.client.get_module('machine')
@@ -145,6 +152,20 @@ class Service(Module):
         mach = mach_mod.get_selected()
         for name, src in volumes.items():
             cmd = 'docker volume create --name {}'.format(name)
+            try:
+                mach_mod.ssh_run(
+                    cmd,
+                    name=mach,
+                    capture='discard'
+                )
+            except self.CommandError:
+                pass
+
+    def delete_volumes(self, volumes):
+        mach_mod = self.client.get_module('machine')
+        mach = mach_mod.get_selected()
+        for name, src in volumes.items():
+            cmd = 'docker volume rm {}'.format(name)
             try:
                 mach_mod.ssh_run(
                     cmd,

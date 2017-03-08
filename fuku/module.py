@@ -110,7 +110,7 @@ class Module(object):
             env={}):
         cfg = self.merged_config(cfg, use_self)
         final = subs(cmd, cfg)
-        print(final)
+        # print(final)
         env_copy = os.environ.copy()
         env_copy.update(env)
         output = run(
@@ -134,3 +134,18 @@ class Module(object):
         handler = getattr(args, '%s_handler' % self.name, None)
         if handler:
             handler(args)
+
+    def save(self):
+        cache = {}
+        if 'selected' in self.store:
+            cache['selected'] = self.store['selected']
+        return cache
+
+    def load(self, cache):
+        if 'selected' in cache:
+            self.store['selected'] = cache['selected']
+        else:
+            try:
+                del self.store['selected']
+            except KeyError:
+                pass

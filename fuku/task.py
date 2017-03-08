@@ -39,7 +39,8 @@ class Task(Module):
         p = ssp.add_parser('list')
         p.set_defaults(task_handler=self.handle_env_list)
         p = ssp.add_parser('set')
-        p.add_argument('values', action=StoreKeyValuePair, nargs='+', help='key value pairs')
+        p.add_argument('--file', '-f', help='load from file')
+        p.add_argument('values', action=StoreKeyValuePair, nargs='*', help='key value pairs')
         p.set_defaults(task_handler=self.handle_env_set)
         p = ssp.add_parser('unset')
         p.add_argument('values', nargs='+', help='keys')
@@ -156,13 +157,32 @@ class Task(Module):
             print('%s=%s' % (k, v))
 
     def handle_env_set(self, args):
-        self.env_set(args.name, args.values)
+        values = {}
+        if args.file:
+            with open(args.file, 'r') as inf:
+                for line in inf:
+                    line = line.strip()
+                    ii = line.find('=')
+                    if ii == -1:
+                        continue
+                    k = line[:ii]
+                    v = line[ii + 1:]
+                    values[k] = v
+        values.update(args.values)
+        self.env_set(args.name, values)
 
     def env_set(self, name, values):
         task_name = self.get_task_name()
         task = self.get_task(task_name)
         if not name:
             name = '_'
+            try:
+                self.run(
+                    '$aws ecr create-repository'
+                    ' --repository-name fuku'
+                )
+            except:
+                pass
             try:
                 ctr_def = self.get_container_definition(task, name)
             except IndexError:

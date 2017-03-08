@@ -122,13 +122,14 @@ class Profile(Module):
         )
         self.delete_role(user, role_name)
 
-    def create_dummy_repo(self):
-        """ Need this for app-level environment.
-        """
-        self.run(
-            '$aws ecr create-repository'
-            ' --repository-name fuku'
-        )
+    # def create_dummy_repo(self):
+    #     """ Need this for app-level environment.
+    #     """
+    #     self.run(
+    #         '$aws ecr create-repository'
+    #         ' --repository-name fuku',
+    #         use_self=True
+    #     )
 
     def configure(self, args):
         if args.bucket:
@@ -146,7 +147,7 @@ class Profile(Module):
             self.error('must set bucket first')
         # self.run('aws configure --profile {}'.format(name))
         self.create_ec2_role(name)
-        self.create_dummy_repo()
+        # self.create_dummy_repo()
 
     def remove(self, args):
         name = args.name
@@ -174,3 +175,21 @@ class Profile(Module):
         if not sel and fail:
             self.error('no profile currently selected')
         return sel
+
+    def save(self):
+        cache = super().save()
+        if 'bucket' in self.store:
+            cache.update({
+                'bucket': self.store['bucket']
+            })
+        return cache
+
+    def load(self, cache):
+        super().load(cache)
+        if 'bucket' in cache:
+            self.store['bucket'] = cache['bucket']
+        else:
+            try:
+                del self.store['bucket']
+            except KeyError:
+                pass

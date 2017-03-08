@@ -27,6 +27,9 @@ class Machine(Module):
                           help='assign public IP')
         addp.set_defaults(machine_handler=self.add)
 
+        p = subp.add_parser('ip', help='allocate a public IP')
+        p.set_defaults(machine_handler=self.handle_ip)
+
         addp = subp.add_parser('init')
         addp.add_argument('name', help='machine name')
         addp.set_defaults(machine_handler=self.handle_init_swarm)
@@ -300,6 +303,13 @@ class Machine(Module):
 
     def handle_stats(self, args):
         self.ssh_run('docker stats', args.name)
+
+    def handle_ip(self, args):
+        app = self.client.get_selected('app')
+        name = self.get_selected()
+        inst = self.get_instance(name, app)
+        id = inst['InstanceId']
+        self.allocate_address(id)
 
     def ssh(self, args):
         self.ssh_run('', args.name)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from fuku.client import Client
+from fuku.session import Session
 from fuku.profile import Profile
 from fuku.region import Region
 from fuku.app import App
@@ -18,6 +19,7 @@ from fuku.metrics import Metrics
 if __name__ == '__main__':
     cli = Client()
     cli.add_modules(
+        Session,
         Profile, Region, App, Machine, Image,
         Task, Service, Postgres, SSL, Redis,
         Metrics
