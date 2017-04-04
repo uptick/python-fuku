@@ -41,6 +41,11 @@ class Client(object):
             if name in mod.dependencies:
                 yield mod
 
+    def iter_dependent_modules(self, parent):
+        for mod in self.modules:
+            if mod.name in parent.dependencies:
+                yield mod
+
     def entry(self):
         self.add_arguments()
         self.args = self.parser.parse_args()

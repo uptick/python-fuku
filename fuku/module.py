@@ -5,62 +5,40 @@ import tempfile
 from contextlib import contextmanager
 from string import Template
 
-from .runner import run, CommandError
+import boto3
 
-
-def merge_cfgs(a, b):
-    y = {}
-    for k, v in a.items():
-        if k in b:
-            y[k] = Template(v).safe_substitute({k: b[k]})
-        else:
-            y[k] = v
-    for k, v in b.items():
-        if k not in a:
-            y[k] = v
-    return y
-
-
-def finish_merge_cfgs(a):
-    x = a
-    while 1:
-        done = True
-        y = {}
-        for k, v in x.items():
-            y[k] = Template(v).safe_substitute(x)
-            if y[k] != v:
-                done = False
-        x = y
-        if done:
-            break
-    return y
-
-
-def subs(cmd, cfg):
-    _cfg = cfg.copy()
-    _cfg.update({'dollar': '$'})
-    cmd = Template(cmd).substitute(_cfg)
-    return cmd
+from .runner import run
 
 
 class Module(object):
     dependencies = []
-    base_config = {
-        'aws': 'aws'
-    }
-    CommandError = CommandError
 
     def __init__(self, name, db=None, client=None):
         self.name = name
         self.db = db
         self.store = self.db.setdefault(self.name, {})
         self.client = client
+        self._checks = {}
 
     def add_arguments(self, parser):
         pass
 
-    def config(self):
-        return {}
+    def validate(self, name):
+        if '-' in name:
+            self.error(f'identifiers cannot contain dashes')
+        if name == 'fuku':
+            self.error('"fuku" is a reserved name')
+        if ' ' in name:
+            self.error('no whitespace in names allowed')
+        if '/' in name:
+            self.error('no slashes in names allowed')
+
+    def get_context(self, ctx={}, skip_local=False):
+        for dep in self.client.iter_dependent_modules(self):
+            ctx = dep.get_context(ctx)
+        if not skip_local:
+            ctx.update(self.get_my_context())
+        return ctx
 
     def get_module(self, name):
         return self.client.get_module(name)
@@ -71,6 +49,9 @@ class Module(object):
     def error(self, msg):
         print(msg)
         sys.exit()
+
+    def register_check(self, key, call):
+        self._checks[key] = call
 
     def data_path(self, filename=None):
         path = os.path.join(
@@ -86,35 +67,24 @@ class Module(object):
 
     @contextmanager
     def template_file(self, filename, context={}):
-        with tempfile.NamedTemporaryFile() as outf:
-            with open(self.data_path(filename)) as inf:
-                data = Template(inf.read()).substitute(context)
-            outf.write(data.encode())
-            outf.flush()
-            yield outf.name
-
-    def merged_config(self, cfg={}, use_self=False):
-        if use_self:
-            mods = [self]
-        else:
-            mods = [self.client.get_module(d) for d in self.dependencies]
-        while len(mods):
-            cur = mods.pop(0)
-            cfg = merge_cfgs(cfg, cur.config())
-            for d in cur.dependencies:
-                mods.append(self.client.get_module(d))
-        cfg = merge_cfgs(cfg, self.base_config)
-        return finish_merge_cfgs(cfg)
+        # with tempfile.NamedTemporaryFile() as outf:
+        with open(self.data_path(filename)) as inf:
+            data = Template(inf.read()).substitute(context)
+        # outf.write(data.encode())
+        # outf.flush()
+        # yield outf.name
+        yield data
 
     def run(self, cmd, cfg={}, capture='discard', use_self=False, ignore_errors=False,
             env={}):
-        cfg = self.merged_config(cfg, use_self)
-        final = subs(cmd, cfg)
+        # cfg = self.merged_config(cfg, use_self)
+        # final = subs(cmd, cfg)
         # print(final)
         env_copy = os.environ.copy()
         env_copy.update(env)
         output = run(
-            final,
+            # final,
+            cmd,
             capture=capture not in set([None, '', False]),
             ignore_errors=ignore_errors,
             env=env_copy
@@ -126,9 +96,18 @@ class Module(object):
     def clear_parent_selections(self):
         for parent in self.client.iter_parent_modules(self.name):
             try:
-                parent.select(type('opts', (object,), {'name': None, 'show': None}))
+                parent.select(None)
             except AttributeError:
                 pass
+
+    def check(self, key):
+        if key in self._checks:
+            return self._checks[key]()
+        else:
+            for parent in self.client.iter_parent_modules(self.name):
+                res = parent.check(key)
+                if res is not None:
+                    return res
 
     def entry(self, args):
         handler = getattr(args, '%s_handler' % self.name, None)
@@ -136,10 +115,7 @@ class Module(object):
             handler(args)
 
     def save(self):
-        cache = {}
-        if 'selected' in self.store:
-            cache['selected'] = self.store['selected']
-        return cache
+        return self.store
 
     def load(self, cache):
         if 'selected' in cache:
@@ -149,3 +125,45 @@ class Module(object):
                 del self.store['selected']
             except KeyError:
                 pass
+
+    def store_set(self, key, value):
+        if value:
+            self.store[key] = value
+        else:
+            try:
+                del self.store[key]
+            except KeyError:
+                pass
+
+    def store_get(self, key):
+        parts = key.split('.')
+        value = self.store
+        for p in parts:
+            if value is not None:
+                value = value.get(p, None)
+        return value
+
+    def db_get(self, key):
+        parts = key.split('.')
+        value = self.store
+        for p in parts:
+            if value is not None:
+                value = value.get(p, None)
+        return value
+
+    def setup_boto_session(self, ctx={}):
+        ctx = self.get_context(ctx, skip_local=True)
+        kwargs = {}
+        if 'region' in ctx:
+            kwargs['region_name'] = ctx['region']
+        if 'profile' in ctx:
+            kwargs['profile_name'] = ctx['profile']
+        boto3.setup_default_session(**kwargs)
+
+    def get_boto_resource(self, resource, ctx={}):
+        self.setup_boto_session(ctx)
+        return boto3.resource(resource)
+
+    def get_boto_client(self, resource, ctx={}):
+        self.setup_boto_session(ctx)
+        return boto3.client(resource)

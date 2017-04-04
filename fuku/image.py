@@ -10,166 +10,170 @@ class Image(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='image help')
 
-        p = subp.add_parser('add', help='add an image')
-        p.add_argument('name', help='image name')
-        p.set_defaults(image_handler=self.handle_add)
-
-        p = subp.add_parser('list', help='list images')
+        p = subp.add_parser('ls', help='list repositories/images')
         p.set_defaults(image_handler=self.handle_list)
 
+        p = subp.add_parser('mk', help='make a repository')
+        p.add_argument('name', metavar='NAME', help='repository name')
+        p.set_defaults(image_handler=self.handle_make)
+
         p = subp.add_parser('connect', help='connect to local image')
-        p.add_argument('name', help='image name')
-        p.add_argument('local', nargs='?', help='local image name')
-        p.add_argument('--show', '-s', action='store_true',
-                       help='show current')
+        p.add_argument('repo', metavar='REPO', help='repository name')
+        p.add_argument('local', metavar='LOCAL', nargs='?', help='local image name')
         p.set_defaults(image_handler=self.handle_connect)
 
-        # uregp = subp.add_parser('unregister', help='unregister a container')
-        # uregp.add_argument('name', help='container name')
-        # uregp.set_defaults(container_handler=self.unregister)
-
-        p = subp.add_parser('push', help='push an image')
-        p.add_argument('name', help='image name')
+        p = subp.add_parser('push', help='push a connected image')
+        p.add_argument('repo', metavar='REPO', help='repository name')
         p.set_defaults(image_handler=self.handle_push)
 
-    def handle_add(self, args):
-        if args.name == 'fuku':
-            self.error('reserved name')
-        if args.name in self.get_repositories(True):
-            self.error('image by that name already exists')
-        if args.name[0] == '/':
-            # TODO: Check the structure?
-            repo = args.name[1:].replace('/', '-')
-        else:
-            app = self.client.get_selected('app')
-            repo = '%s-%s' % (app, args.name)
-        self.create_repository(repo)
-
     def handle_list(self, args):
-        repos = self.get_repositories(True)
-        for repo in repos:
+        self.list()
+
+    def list(self):
+        for repo in self.iter_repositories():
             print(repo)
 
+    def handle_make(self, args):
+        self.make(args.name)
+
+    def make(self, name):
+        ctx = self.get_context()
+        ecr = self.get_boto_client('ecr')
+        if name in list(self.iter_repositories(ecr=ecr, ctx=ctx)):
+            self.error('image by that name already exists')
+        if name[0] == '/':
+            repo = name[1:]
+            self.validate(repo)
+        else:
+            self.validate(name)
+            repo = f'{ctx["app"]}-{name}'
+        ecr.create_repository(
+            repositoryName=repo
+        )
+
     def handle_connect(self, args):
-        repos = self.get_repositories(True)
-        if args.name not in repos:
-            self.error('image does not exist')
-        app = self.client.get_selected('app')
-        if args.name[0] == '/':
+        self.connect(args.repo, args.local)
+
+    def connect(self, repo, local):
+        if repo not in list(self.iter_repositories()):
+            self.error(f'repository "{repo}" does not exist')
+        if repo[0] == '/':
             x = self.store.setdefault('images', {})
         else:
             x = self.store.setdefault('images', {}).setdefault(app, {})
-        x = x.setdefault(args.name, {})
-        if args.show:
+        x = x.setdefault(repo, {})
+        if not local:
             local = x.get('local', None)
             if local:
                 print(local)
         else:
-            x['local'] = args.local
+            x['local'] = local
 
     def handle_push(self, args):
-        name = args.name
-        if name[0] == '/':
-            local = self.store.get('images', {}).get(name, {}).get('local', None)
+        self.push(args.repo)
+
+    def push(self, repo):
+        ctx = self.get_context()
+        if repo[0] == '/':
+            local = self.store.get('images', {}).get(repo, {}).get('local', None)
         else:
-            app = self.client.get_selected('app')
-            local = self.store.get('images', {}).get(app, {}).get(name, {}).get('local', None)
+            local = self.store.get('images', {}).get(ctx['app'], {}).get(repo, {}).get('local', None)
         if not local:
             self.error('image not connected')
-        uri = self.get_uri(args.name)
-        self.run(
-            'docker tag {} {}:latest'.format(
-                local,
-                uri
-            )
-        )
-        self.login()
-        self.run('docker push {}:latest'.format(uri), capture=False)
+        ecr = self.get_boto_client('ecr')
+        uri = self.get_uri(repo, ctx=ctx, ecr=ecr)
+        self.run(f'docker tag {local} {uri}:latest')
+        self.login(ctx=ctx)
+        self.run(f'docker push {uri}:latest', capture=False)
 
-    def login(self):
-        data = self.run('$aws ecr get-login')
-        self.run(data)
-
-    def create_repository(self, repo):
-        data = self.run(
-            '$aws ecr create-repository'
-            ' --repository-name {}'.format(
-                repo
-            ),
-            capture='json'
-        )
-        return data['repository']['repositoryUri']
-
-    def delete_repository(self, repo):
-        self.run(
-            '$aws ecr delete-repository'
-            ' --repository-name {}'.format(
-                repo
-            )
-        )
-
-    def get_repositories(self, _global=False):
-        app = self.client.get_selected('app')
-        data = self.run(
-            '$aws ecr describe-repositories'
-            ' --query \'repositories[*].repositoryName\'',
-            capture='json'
-        )
-        data = [d for d in data if d != 'fuku']
-        pre = app + '-'
-        results = []
-        if _global:
-            results += ['/' + d for d in data if '-' not in d]
+    def iter_repositories(self, ecr=None, ctx=None):
+        if ctx is None:
+            ctx = self.get_context()
+        if ecr is None:
+            ecr = self.get_boto_client('ecr')
+        data = ecr.describe_repositories()
+        data = [d['repositoryName'] for d in data['repositories'] if d['repositoryName'] != 'fuku']
+        pre = ctx['app'] + '-'
+        results = ['/' + d for d in data if '-' not in d]
         results += [d[len(pre):] for d in data if d.startswith(pre)]
-        return results
+        for res in results:
+            yield res
 
-    def get_uri(self, name):
-        app = self.client.get_selected('app')
-        repo = name
+    def get_my_context(self):
+        return {}
+
+    def get_uri(self, repo, ecr=None, ctx=None):
+        if ctx is None:
+            ctx = self.get_context()
+        if ecr is None:
+            ecr = self.get_boto_client('ecr')
         if repo[0] != '/':
-            repo = app + '-' + repo
+            repo = f'{ctx["app"]}-{repo}'
         else:
             repo = repo[1:]
-        data = self.run(
-            '$aws ecr describe-repositories'
-            ' --repository-name {}'
-            ' --query \'repositories[*].repositoryUri\''
-            .format(repo),
-            capture='json'
-        )
-        return data[0]
+        try:
+            return ecr.describe_repositories(
+                repositoryNames=[repo]
+            )['repositories'][0]['repositoryUri']
+        except KeyError:
+            self.error('unknown repository')
 
-    def get_image(self, name):
-        app = self.client.get_selected('app')
-        repo = '%s-%s' % (app, name)
-        data = self.run(
-            '$aws ecr describe-images'
-            ' --repository-name {}'
-            .format(
-                repo
-            ),
-            capture=True
-        )
-        return data
+    def login(self, ctx=None):
+        # TODO: Should really be using the `get_authorization_token` thingo.
+        if ctx is None:
+            ctx = self.get_context()
+        data = self.run(f'aws --profile={ctx["profile"]} --region={ctx["region"]} ecr get-login')
+        self.run(data)
 
-    def unregister(self, args):
-        ctr = self.get_image(args.name)
-        self.delete_repository(ctr['full_repo'])
-        # del self.store['containers'][ctr['app']][args.name]
+    # def create_repository(self, repo):
+    #     data = self.run(
+    #         '$aws ecr create-repository'
+    #         ' --repository-name {}'.format(
+    #             repo
+    #         ),
+    #         capture='json'
+    #     )
+    #     return data['repository']['repositoryUri']
 
-    def launch(self, args):
-        name = args.name
-        ctr = self.get_container(name)
-        mach_mod = self.client.get_module('machine')
-        mach = mach_mod.get_selected()
-        mach_mod.ssh_run(
-            mach['name'],
-            '/root/pull.sh $region {}'.format(ctr['repo_uri'])
-        )
+    # def delete_repository(self, repo):
+    #     self.run(
+    #         '$aws ecr delete-repository'
+    #         ' --repository-name {}'.format(
+    #             repo
+    #         )
+    #     )
 
-    def get_image_name(self, name):
-        if name[0] != '!':
-            img = self.get_uri(name)
-        else:
-            img = name[1:]
-        return img
+    # def get_image(self, name):
+    #     app = self.client.get_selected('app')
+    #     repo = '%s-%s' % (app, name)
+    #     data = self.run(
+    #         '$aws ecr describe-images'
+    #         ' --repository-name {}'
+    #         .format(
+    #             repo
+    #         ),
+    #         capture=True
+    #     )
+    #     return data
+
+    # def unregister(self, args):
+    #     ctr = self.get_image(args.name)
+    #     self.delete_repository(ctr['full_repo'])
+    #     # del self.store['containers'][ctr['app']][args.name]
+
+    # def launch(self, args):
+    #     name = args.name
+    #     ctr = self.get_container(name)
+    #     mach_mod = self.client.get_module('machine')
+    #     mach = mach_mod.get_selected()
+    #     mach_mod.ssh_run(
+    #         mach['name'],
+    #         '/root/pull.sh $region {}'.format(ctr['repo_uri'])
+    #     )
+
+    # def get_image_name(self, name):
+    #     if name[0] != '!':
+    #         img = self.get_uri(name)
+    #     else:
+    #         img = name[1:]
+    #     return img

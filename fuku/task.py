@@ -17,67 +17,86 @@ class Task(Module):
         super().__init__('task', **kwargs)
 
     def add_arguments(self, parser):
-        subp = parser.add_subparsers(help='container help')
+        subp = parser.add_subparsers(help='task help')
 
-        p = subp.add_parser('add', help='add/update a task')
-        p.add_argument('name')
-        p.add_argument('image')
-        p.add_argument('--update', '-u', action='store_true')
-        p.set_defaults(task_handler=self.handle_add)
-
-        p = subp.add_parser('remove', help='remove a task')
-        p.add_argument('name')
-        p.set_defaults(task_handler=self.handle_remove)
-
-        p = subp.add_parser('list', help='list tasks')
-        p.add_argument('name', nargs='?')
+        p = subp.add_parser('ls', help='list tasks')
+        p.add_argument('name', metavar='NAME', nargs='?', help='task name')
         p.set_defaults(task_handler=self.handle_list)
 
-        p = subp.add_parser('env', help='update environment')
-        p.add_argument('--name', '-n')
-        ssp = p.add_subparsers()
-        p = ssp.add_parser('list')
-        p.set_defaults(task_handler=self.handle_env_list)
-        p = ssp.add_parser('set')
-        p.add_argument('--file', '-f', help='load from file')
-        p.add_argument('values', action=StoreKeyValuePair, nargs='*', help='key value pairs')
-        p.set_defaults(task_handler=self.handle_env_set)
-        p = ssp.add_parser('unset')
-        p.add_argument('values', nargs='+', help='keys')
-        p.set_defaults(task_handler=self.handle_env_unset)
+        p = subp.add_parser('mk', help='make a task')
+        p.add_argument('name', metavar='NAME', help='task name')
+        p.add_argument('image', metavar='IMAGE', help='image name')
+        p.set_defaults(task_handler=self.handle_make)
 
-        p = subp.add_parser('ports', help='manage ports')
-        p.add_argument('name')
-        ssp = p.add_subparsers()
-        p = ssp.add_parser('set')
-        p.add_argument('values', action=StorePortPair, nargs='+', help='port mappings')
-        p.set_defaults(task_handler=self.handle_ports_set)
-        p = ssp.add_parser('unset')
-        p.add_argument('values', nargs='+', help='ports')
-        p.set_defaults(task_handler=self.handle_ports_unset)
+        # p = subp.add_parser('remove', help='remove a task')
+        # p.add_argument('name')
+        # p.set_defaults(task_handler=self.handle_remove)
 
-        p = subp.add_parser('volume', help='manage volumes')
-        p.add_argument('name')
-        ssp = p.add_subparsers()
-        p = ssp.add_parser('add')
-        p.add_argument('volume')
-        p.add_argument('destination')
-        p.add_argument('--source', '-s')
-        p.set_defaults(task_handler=self.handle_volume_add)
-        p = ssp.add_parser('remove')
-        p.add_argument('volume')
-        p.set_defaults(task_handler=self.handle_volume_remove)
+        # p = subp.add_parser('env', help='update environment')
+        # p.add_argument('--name', '-n')
+        # ssp = p.add_subparsers()
+        # p = ssp.add_parser('list')
+        # p.set_defaults(task_handler=self.handle_env_list)
+        # p = ssp.add_parser('set')
+        # p.add_argument('--file', '-f', help='load from file')
+        # p.add_argument('values', action=StoreKeyValuePair, nargs='*', help='key value pairs')
+        # p.set_defaults(task_handler=self.handle_env_set)
+        # p = ssp.add_parser('unset')
+        # p.add_argument('values', nargs='+', help='keys')
+        # p.set_defaults(task_handler=self.handle_env_unset)
 
-        p = subp.add_parser('command', help='set command')
-        p.add_argument('name')
-        p.add_argument('command', nargs='?')
-        p.add_argument('--remove', '-r', action='store_true')
-        p.set_defaults(task_handler=self.handle_command)
+        # p = subp.add_parser('ports', help='manage ports')
+        # p.add_argument('name')
+        # ssp = p.add_subparsers()
+        # p = ssp.add_parser('set')
+        # p.add_argument('values', action=StorePortPair, nargs='+', help='port mappings')
+        # p.set_defaults(task_handler=self.handle_ports_set)
+        # p = ssp.add_parser('unset')
+        # p.add_argument('values', nargs='+', help='ports')
+        # p.set_defaults(task_handler=self.handle_ports_unset)
 
-    def handle_add(self, args):
-        self.add(args.name, args.image, args.update)
+        # p = subp.add_parser('volume', help='manage volumes')
+        # p.add_argument('name')
+        # ssp = p.add_subparsers()
+        # p = ssp.add_parser('add')
+        # p.add_argument('volume')
+        # p.add_argument('destination')
+        # p.add_argument('--source', '-s')
+        # p.set_defaults(task_handler=self.handle_volume_add)
+        # p = ssp.add_parser('remove')
+        # p.add_argument('volume')
+        # p.set_defaults(task_handler=self.handle_volume_remove)
 
-    def add(self, name, image_name, update=False):
+        # p = subp.add_parser('command', help='set command')
+        # p.add_argument('name')
+        # p.add_argument('command', nargs='?')
+        # p.add_argument('--remove', '-r', action='store_true')
+        # p.set_defaults(task_handler=self.handle_command)
+
+    def handle_list(self, args):
+        self.list(args.name)
+
+    def list(self, name):
+        ctx = self.get_context()
+        ecs = self.get_boto_client('ecs')
+        try:
+            app_task = ecs.describe_task_definition(
+                taskDefinition=ctx['app']
+            )
+        except:
+            return
+        if name:
+            ctr_def = self.get_container_definition(task, args.name)
+            print(json.dumps(ctr_def, indent=2))
+        else:
+            for cd in task['containerDefinitions']:
+                if cd['name'] != '_':
+                    print(cd['name'])
+
+    def handle_make(self, args):
+        self.add(args.name, args.image)
+
+    def make(self, name, image_name):
         task_name = self.get_task_name()
         img = self.client.get_module('image').get_image_name(image_name)
         try:
@@ -125,20 +144,6 @@ class Task(Module):
                     '$aws ecs deregister-task-definition'
                     ' --task-definition {}'.format(arn)
                 )
-
-    def handle_list(self, args):
-        task_name = self.get_task_name()
-        try:
-            task = self.get_task(task_name, escape=False)
-        except self.CommandError:
-            return
-        if args.name:
-            ctr_def = self.get_container_definition(task, args.name)
-            print(json.dumps(ctr_def, indent=2))
-        else:
-            for d in task['containerDefinitions']:
-                if d['name'] != '_':
-                    print(d['name'])
 
     def handle_env_list(self, args):
         name = args.name
@@ -377,7 +382,7 @@ class Task(Module):
         try:
             ctr_def = list(filter(lambda x: x['name'] == name, task['containerDefinitions']))[0]
         except KeyError:
-            self.error('container definition with that name does not exist')
+            self.error(f'task "{name}" does not exist')
         return ctr_def
 
     def register_task(self, task):
@@ -399,3 +404,6 @@ class Task(Module):
 
     def get_task_name(self, name=None):
         return self.client.get_selected('app')
+
+    def get_my_context(self):
+        return {}

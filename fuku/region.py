@@ -11,45 +11,42 @@ class Region(Module):
 
     def __init__(self, **kwargs):
         super().__init__('region', **kwargs)
-        self.aws_path = os.path.expanduser('~/.aws/credentials')
 
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='region help')
 
-        selp = subp.add_parser('select', help='select a region')
-        selp.add_argument('name', help='region name')
-        selp.set_defaults(region_handler=self.select)
+        p = subp.add_parser('ls', help='list regions')
+        p.set_defaults(region_handler=self.handle_list)
 
-        listp = subp.add_parser('list', help='list regions')
-        listp.set_defaults(region_handler=self.list)
+        p = subp.add_parser('sl', help='select a region')
+        p.add_argument('name', metavar='NAME', help='region name')
+        p.set_defaults(region_handler=self.handle_select)
 
-    def config(self):
-        cfg = {}
-        sel = self.get_selected()
-        if sel:
-            cfg['region'] = sel
-            cfg['aws'] = '$aws --region $region'
-        return cfg
+    def handle_list(self, args):
+        self.list()
 
-    def list(self, args):
+    def list(self):
         for r in sorted(list(self.regions)):
             print(r)
 
-    def select(self, args):
-        name = args.name
-        if not name:
-            try:
-                del self.store['selected']
-            except KeyError:
-                pass
-        else:
-            if name not in self.regions:
-                self.error('unknown region')
-            self.store['selected'] = name
+    def handle_select(self, args):
+        self.select(args.name)
+
+    def select(self, name):
+        if name and name not in self.regions:
+            self.error(f'no region "{name}"')
+        self.store_set('selected', name)
         self.clear_parent_selections()
 
-    def get_selected(self, fail=True):
-        sel = self.store.get('selected', None)
-        if not sel and fail:
+    def get_my_context(self):
+        ctx = {}
+        sel = self.get_selected()
+        if sel:
+            ctx['region'] = sel
+        return ctx
+
+    def get_selected(self):
+        sel = self.store_get('selected')
+        if not sel:
             self.error('no region currently selected')
         return sel

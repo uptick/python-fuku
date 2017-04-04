@@ -10,18 +10,18 @@ class Session(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='session help')
 
-        p = subp.add_parser('save', help='save session')
+        p = subp.add_parser('sv', help='save session')
         p.add_argument('name', help='session name')
         p.set_defaults(session_handler=self.handle_save)
 
-        p = subp.add_parser('load', help='load session')
+        p = subp.add_parser('ld', help='load session')
         p.add_argument('name', help='session name')
         p.set_defaults(session_handler=self.handle_load)
 
-        p = subp.add_parser('list', help='list sessions')
+        p = subp.add_parser('ls', help='list sessions')
         p.set_defaults(session_handler=self.handle_list)
 
-        p = subp.add_parser('show', help='show current state')
+        p = subp.add_parser('sh', help='show current state')
         p.set_defaults(session_handler=self.handle_show)
 
     def handle_save(self, args):

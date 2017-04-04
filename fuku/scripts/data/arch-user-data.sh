@@ -11,7 +11,7 @@ pip install awscli
 
 # Configure docker and launch.
 groupadd docker
-sed -i 's!dockerd!dockerd --log-driver=awslogs --log-opt awslogs-region=$region --log-opt awslogs-group=/$app --log-opt awslogs-stream=$machine!g' /usr/lib/systemd/system/docker.service
+sed -i 's!dockerd!dockerd --log-driver=awslogs --log-opt awslogs-region=$region --log-opt awslogs-group=/$cluster --log-opt awslogs-stream=$node!g' /usr/lib/systemd/system/docker.service
 systemctl enable docker
 systemctl start docker
 
@@ -33,7 +33,7 @@ git clone https://github.com/awslabs/collectd-cloudwatch /usr/share/collectd/col
 sed -i 's!PluginInstance!Container!g' /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/modules/metricdata.py
 cat > /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config/plugin.conf <<EOF
 region="$region"
-host="$app-$machine"
+host="$cluster-$node"
 whitelist_pass_through=False
 debug=False
 EOF

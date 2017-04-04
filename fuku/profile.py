@@ -1,11 +1,15 @@
 import os
 from configparser import ConfigParser
 
-from .runner import already_exists
+import boto3
+
 from .module import Module
+from .utils import entity_already_exists, limit_exceeded
 
 
 class Profile(Module):
+    dependencies = ['configuration']
+
     def __init__(self, **kwargs):
         super().__init__('profile', **kwargs)
         self.aws_path = os.path.expanduser('~/.aws/credentials')
@@ -13,65 +17,95 @@ class Profile(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='profile help')
 
-        p = subp.add_parser('configure', help='configuration')
-        p.add_argument('--bucket', '-b', help='app cache bucket')
-        p.set_defaults(profile_handler=self.configure)
+        p = subp.add_parser('ls', help='list profiles')
+        p.add_argument('name', metavar='NAME', nargs='?', help='profile name')
+        p.set_defaults(profile_handler=self.handle_list)
 
-        addp = subp.add_parser('list', help='list profiles')
-        addp.set_defaults(profile_handler=self.list)
+        p = subp.add_parser('mk', help='make a new profile')
+        p.add_argument('name', metavar='NAME', help='profile name')
+        p.set_defaults(profile_handler=self.handle_make)
 
-        addp = subp.add_parser('add', help='add a profile')
-        addp.add_argument('name', help='profile name')
-        addp.set_defaults(profile_handler=self.add)
+        # p = subp.add_parser('rm', help='remove a profile')
+        # p.add_argument('name', metavar='NAME', help='profile name')
+        # p.set_defaults(profile_handler=self.handle_remove)
 
-        remp = subp.add_parser('remove', help='remove a profile')
-        remp.add_argument('name', help='profile name')
-        remp.set_defaults(profile_handler=self.remove)
+        p = subp.add_parser('sl', help='select a profile')
+        p.add_argument('name', metavar='NAME', help='profile name')
+        p.set_defaults(profile_handler=self.handle_select)
 
-        selp = subp.add_parser('select', help='select a profile')
-        selp.add_argument('name', help='profile name')
-        selp.set_defaults(profile_handler=self.select)
+        p = subp.add_parser('sh', help='show selected profile')
+        p.set_defaults(profile_handler=self.handle_show)
 
-    def config(self):
-        cfg = {}
-        sel = self.get_selected()
-        if 'bucket' not in self.store:
-            self.error('bucket not set')
-        cfg['profile'] = sel
-        cfg['aws'] = '$aws --profile $profile'
-        cfg['bucket'] = self.store['bucket']
-        return cfg
+    def handle_list(self, args):
+        self.list(args.name)
 
-    def create_role(self, user, name, policies=[]):
-        with already_exists(r'Role with name ec2-role already exists'):
-            self.run(
-                '$aws iam create-role'
-                ' --profile {user}'
-                ' --role-name {name}'
-                ' --assume-role-policy-document'
-                ' file://{file}'.format(
-                    user=user,
-                    name=name,
-                    file=self.data_path('ecs-assume-role.json')
-                ),
+    def list(self, name):
+        for prof in self.list_local_profiles():
+            if not name or name == prof:
+                print(prof)
+
+    def handle_make(self, args):
+        self.make(args.name)
+
+    def make(self, name):
+        if name not in self.list_local_profiles():
+            self.error(f'please create a "{name}" profile using AWS CLI then rerun')
+        self.create_ec2_role(name)
+
+    def handle_select(self, args):
+        self.select(args.name)
+
+    def select(self, name):
+        if name and name not in self.list_local_profiles():
+            self.error(f'no profile named "{name}"')
+        self.store_set('selected', name)
+        self.clear_parent_selections()
+
+    def handle_show(self, args):
+        self.show()
+
+    def show(self):
+        sel = self.store_get('selected')
+        if sel:
+            print(sel)
+
+    def list_local_profiles(self):
+        cfg = ConfigParser()
+        cfg.read(self.aws_path)
+        return cfg.sections()
+
+    def create_ec2_role(self, user):
+        role_name = 'ec2-role'
+        inst_name = 'ec2-profile'
+        iam = boto3.Session(profile_name=user).client('iam')
+        self.create_role(user, role_name, ['ec2-policy'], iam=iam)
+        with entity_already_exists():
+            iam.create_instance_profile(
+                InstanceProfileName=inst_name
+            )
+        with limit_exceeded():
+            iam.add_role_to_instance_profile(
+                InstanceProfileName=inst_name,
+                RoleName=role_name
+            )
+
+    def create_role(self, user, name, policies=[], iam=None):
+        if iam is None:
+            iam = boto3.Session(profile_name=user).client('iam')
+        with entity_already_exists():
+            iam.create_role(
+                RoleName=name,
+                AssumeRolePolicyDocument=f'file://{self.data_path("ecs-assume-role.json")}'
             )
         for policy in policies:
-            ctx = self.merged_config({
+            ctx = self.get_context({
                 'name': name,
-                'bucket': self.store['bucket']
             })
-            with self.template_file('%s.json' % policy, ctx) as policy_file:
-                self.run(
-                    '$aws iam put-role-policy '
-                    ' --profile {user}'
-                    ' --role-name {name}'
-                    ' --policy-name {policy}'
-                    ' --policy-document file://{policy_file}'.format(
-                        user=user,
-                        name=name,
-                        policy=policy,
-                        policy_file=policy_file
-                    )
+            with self.template_file(f'{policy}.json', ctx) as policy_file:
+                iam.put_role_policy(
+                    RoleName=name,
+                    PolicyName=policy,
+                    PolicyDocument=policy_file
                 )
 
     def delete_role(self, user, role):
@@ -82,31 +116,6 @@ class Profile(Module):
                 user=user,
                 role=role
             )
-        )
-
-    def create_ec2_role(self, user):
-        role_name = 'ec2-role'
-        inst_name = 'ec2-profile'
-        self.create_role(user, role_name, ['ec2-policy'])
-        with already_exists(r'Instance Profile ec2-profile already exists'):
-            self.run(
-                '$aws iam create-instance-profile '
-                ' --profile {user}'
-                ' --instance-profile-name {inst_name}'.format(
-                    user=user,
-                    inst_name=inst_name
-                )
-            )
-        self.run(
-            '$aws iam add-role-to-instance-profile'
-            ' --profile {user}'
-            ' --instance-profile-name {inst_name}'
-            ' --role-name {role_name}'.format(
-                user=user,
-                inst_name=inst_name,
-                role_name=role_name
-            ),
-            use_self=True
         )
 
     def delete_ec2_role(self, user):
@@ -122,74 +131,15 @@ class Profile(Module):
         )
         self.delete_role(user, role_name)
 
-    # def create_dummy_repo(self):
-    #     """ Need this for app-level environment.
-    #     """
-    #     self.run(
-    #         '$aws ecr create-repository'
-    #         ' --repository-name fuku',
-    #         use_self=True
-    #     )
+    def get_my_context(self):
+        ctx = {}
+        sel = self.get_selected()
+        if sel:
+            ctx['profile'] = sel
+        return ctx
 
-    def configure(self, args):
-        if args.bucket:
-            bucket = args.bucket
-            self.store['bucket'] = bucket
-
-    def list(self, args):
-        cfg = ConfigParser()
-        cfg.read(self.aws_path)
-        print(cfg.sections())
-
-    def add(self, args):
-        name = args.name
-        if not self.store.get('bucket', None):
-            self.error('must set bucket first')
-        # self.run('aws configure --profile {}'.format(name))
-        self.create_ec2_role(name)
-        # self.create_dummy_repo()
-
-    def remove(self, args):
-        name = args.name
-        # TODO: Remove profile
-        self.delete_ec2_role(name)
-
-    def select(self, args):
-        name = args.name
-        cfg = ConfigParser()
-        cfg.read(self.aws_path)
-        if name not in cfg.sections():
-            self.error('no profile named "{}"'.format(name))
-        self.store['selected'] = name
-        try:
-            del self.store['bucket']
-        except KeyError:
-            pass
-        self.clear_parent_selections()
-
-    def get_selected(self, fail=True):
-        try:
-            sel = self.store['selected']
-        except KeyError:
-            sel = None
-        if not sel and fail:
+    def get_selected(self):
+        sel = self.store_get('selected')
+        if not sel:
             self.error('no profile currently selected')
         return sel
-
-    def save(self):
-        cache = super().save()
-        if 'bucket' in self.store:
-            cache.update({
-                'bucket': self.store['bucket']
-            })
-        return cache
-
-    def load(self, cache):
-        super().load(cache)
-        if 'bucket' in cache:
-            self.store['bucket'] = cache['bucket']
-        else:
-            try:
-                del self.store['bucket']
-            except KeyError:
-                pass

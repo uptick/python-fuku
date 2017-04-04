@@ -1,6 +1,13 @@
 import argparse
 import string
 import random
+from contextlib import contextmanager
+
+import botocore
+
+
+class EntityAlreadyExists(Exception):
+    pass
 
 
 class StoreKeyValuePair(argparse.Action):
@@ -111,3 +118,28 @@ def mounts_to_string(val, existing={}, opt='--mount'):
 
 def gen_secret(length=64):
     return ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(length))
+
+
+@contextmanager
+def entity_already_exists(hide=True):
+    try:
+        yield
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] not in [
+                'EntityAlreadyExists',
+                'InvalidKeyPair.Duplicate',
+                'InvalidGroup.Duplicate',
+                'InvalidPermission.Duplicate'
+        ]:
+            raise
+        if not hide:
+            raise EntityAlreadyExists
+
+
+@contextmanager
+def limit_exceeded():
+    try:
+        yield
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] != 'LimitExceeded':
+            raise

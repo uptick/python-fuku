@@ -2,26 +2,36 @@
 
 from fuku.client import Client
 from fuku.session import Session
+from fuku.configuration import Configuration
 from fuku.profile import Profile
 from fuku.region import Region
+from fuku.cluster import Cluster
+from fuku.node import Node
 from fuku.app import App
-from fuku.machine import Machine
 from fuku.image import Image
 from fuku.task import Task
-from fuku.service import Service
-# from fuku.container import Container
-from fuku.postgres import Postgres
-from fuku.ssl import SSL
-from fuku.redis import Redis
-from fuku.metrics import Metrics
+# from fuku.app import App
+# from fuku.machine import Machine
+# from fuku.image import Image
+# from fuku.task import Task
+# from fuku.service import Service
+# # from fuku.container import Container
+# from fuku.postgres import Postgres
+# from fuku.ssl import SSL
+# from fuku.redis import Redis
+# from fuku.metrics import Metrics
 
 
 if __name__ == '__main__':
     cli = Client()
     cli.add_modules(
-        Session,
-        Profile, Region, App, Machine, Image,
-        Task, Service, Postgres, SSL, Redis,
-        Metrics
+        Session, Configuration,
+        Profile, Region,
+        Cluster, Node,
+        App,
+        Image, Task,
+        # Profile, Region, App, Machine, Image,
+        # Task, Service, Postgres, SSL, Redis,
+        # Metrics
     )
     cli.entry()
