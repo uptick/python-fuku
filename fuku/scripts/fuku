@@ -10,15 +10,16 @@ from fuku.node import Node
 from fuku.app import App
 from fuku.image import Image
 from fuku.task import Task
+from fuku.service import Service
 # from fuku.app import App
 # from fuku.machine import Machine
 # from fuku.image import Image
 # from fuku.task import Task
 # from fuku.service import Service
 # # from fuku.container import Container
-# from fuku.postgres import Postgres
+from fuku.pg import Pg
 # from fuku.ssl import SSL
-# from fuku.redis import Redis
+from fuku.redis import Redis
 # from fuku.metrics import Metrics
 
 
@@ -29,7 +30,8 @@ if __name__ == '__main__':
         Profile, Region,
         Cluster, Node,
         App,
-        Image, Task,
+        Image, Task, Service,
+        Redis, Pg
         # Profile, Region, App, Machine, Image,
         # Task, Service, Postgres, SSL, Redis,
         # Metrics

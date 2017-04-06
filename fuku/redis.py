@@ -1,5 +1,4 @@
 from .module import Module
-# from .utils import dict_to_env, dict_to_ports
 
 
 class Redis(Module):
@@ -11,23 +10,30 @@ class Redis(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='redis help')
 
-        p = subp.add_parser('add')
-        p.set_defaults(redis_handler=self.handle_add)
+        p = subp.add_parser('mk', help='make a redis task')
+        p.set_defaults(redis_handler=self.handle_make)
 
         p = subp.add_parser('connect')
-        p.add_argument('--target', '-t')
+        p.add_argument('target', metavar='TARGET', help='target task name')
         p.set_defaults(redis_handler=self.handle_connect)
 
-    def handle_add(self, args):
+    def handle_make(self, args):
+        self.make()
+
+    def make(self):
         task_mod = self.client.get_module('task')
-        task_mod.add('redis', '!redis:alpine')
+        task_mod.make('redis', '!redis:alpine', memory=64)
 
     def handle_connect(self, args):
+        self.connect(args.target)
+
+    def connect(self, target):
         task_mod = self.client.get_module('task')
         env = {
             'REDIS_URL': self.get_url()
         }
-        task_mod.env_set(args.target, env)
+        task_mod.env_set(target, env)
 
     def get_url(self):
-        return 'redis://redis:6379'
+        ctx = self.get_context()
+        return f'redis://{ctx["app"]}-redis:6379'

@@ -7,7 +7,7 @@ from .utils import entity_already_exists
 
 
 class App(Module):
-    dependencies = ['region']
+    dependencies = ['cluster']
 
     def __init__(self, **kwargs):
         super().__init__('app', **kwargs)
@@ -29,6 +29,11 @@ class App(Module):
         p = subp.add_parser('sl', help='select an app')
         p.add_argument('name', metavar='NAME', help='app name')
         p.set_defaults(app_handler=self.handle_select)
+
+        p = subp.add_parser('run', help='run a command')
+        p.add_argument('image', metavar='IMAGE', help='image name')
+        p.add_argument('command', metavar='CMD', nargs='+', help='command to run')
+        p.set_defaults(app_handler=self.handle_run)
 
     def handle_list(self, args):
         self.list()
@@ -52,16 +57,27 @@ class App(Module):
         self.store_set('selected', name)
         self.clear_parent_selections()
 
+    def handle_run(self, args):
+        self.run(args.image, args.command)
+
+    def run(self, img, cmd):
+        img = self.client.get_module('image').get_uri(img)
+        cmd = ' '.join(cmd or [])
+        full_cmd = f'docker run --rm -it {img} {cmd}'
+        node_mod = self.client.get_module('node')
+        node_mod.mgr_run(full_cmd, tty=True)
+
     def iter_groups(self):
         iam = self.get_boto_resource('iam')
         for gr in iam.groups.filter(PathPrefix='/fuku/'):
             yield gr
 
     def create_group(self, name):
+        ctx = self.get_context()
         iam = self.get_boto_client('iam')
         with entity_already_exists():
             iam.create_group(
-                Path='/fuku/',
+                Path=f'/fuku/{ctx["cluster"]}/{name}/',
                 GroupName=f'fuku-{name}'
             )
 

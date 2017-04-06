@@ -171,9 +171,9 @@ class Image(Module):
     #         '/root/pull.sh $region {}'.format(ctr['repo_uri'])
     #     )
 
-    # def get_image_name(self, name):
-    #     if name[0] != '!':
-    #         img = self.get_uri(name)
-    #     else:
-    #         img = name[1:]
-    #     return img
+    def image_name_to_uri(self, name):
+        if name[0] != '!':
+            img = self.get_uri(name)
+        else:
+            img = name[1:]
+        return img

@@ -1,4 +1,5 @@
 from .module import Module
+from .runner import CommandError
 from .utils import (
     env_to_string, ports_to_string, env_to_dict, dict_to_env,
     mounts_to_string, volumes_to_dict
@@ -14,90 +15,155 @@ class Service(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='service help')
 
-        p = subp.add_parser('add')
-        p.add_argument('task')
-        p.add_argument('--replicas', '-r')
-        p.add_argument('--update', '-u', action='store_true')
-        p.set_defaults(service_handler=self.handle_add)
-
-        p = subp.add_parser('remove')
-        p.add_argument('task')
-        p.add_argument('--volumes', '-v', action='store_true', help='remove volumes')
-        p.set_defaults(service_handler=self.handle_remove)
-
-        p = subp.add_parser('list')
-        p.add_argument('task', nargs='?')
+        p = subp.add_parser('ls', help='list services')
+        p.add_argument('task', metavar='TASK', nargs='?', help='task name')
         p.set_defaults(service_handler=self.handle_list)
 
-        p = subp.add_parser('logs', help='get logs')
-        p.add_argument('name', help='container name')
-        p.set_defaults(service_handler=self.handle_logs)
+        p = subp.add_parser('mk', help='make a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('--replicas', '-r', help='number of replicas')
+        p.set_defaults(service_handler=self.handle_make)
 
-    def handle_add(self, args):
-        self.add(args.task, args.replicas, args.update)
+        p = subp.add_parser('up', help='update a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('--replicas', '-r', help='number of replicas')
+        p.set_defaults(service_handler=self.handle_update)
 
-    def add(self, task_name, replicas=None, update=False):
+        # p = subp.add_parser('remove')
+        # p.add_argument('task')
+        # p.add_argument('--volumes', '-v', action='store_true', help='remove volumes')
+        # p.set_defaults(service_handler=self.handle_remove)
+
+        # p = subp.add_parser('logs', help='get logs')
+        # p.add_argument('name', help='container name')
+        # p.set_defaults(service_handler=self.handle_logs)
+
+    def handle_list(self, args):
+        self.list(args.task)
+
+    def list(self, task_name):
+        ctx = self.get_context()
+        node_mod = self.client.get_module('node')
+        if task_name:
+            svc_name = f'{ctx["app"]}-{task_name}'
+            try:
+                node_mod.mgr_run(
+                    f'docker service inspect {svc_name}',
+                    capture=False
+                )
+            except CommandError:
+                pass
+        else:
+            node_mod.mgr_run(
+                'docker service ls',
+                capture=False
+            )
+
+    def handle_make(self, args):
+        self.make(args.task, args.replicas)
+
+    def make(self, task_name, replicas=None):
+        ctx = self.get_context()
         task_mod = self.client.get_module('task')
-        task = task_mod.get_task(task_mod.get_task_name())
+        app_task = task_mod.get_app_task()
         try:
-            env = env_to_dict(task_mod.get_container_definition(task, '_')['environment'])
-        except IndexError:
+            env = env_to_dict(task_mod.get_container_definition(app_task, '_', fail=False)['environment'])
+        except TypeError:
             env = {}
-        ctr_def = task_mod.get_container_definition(task, task_name)
-        cmd = '$dollar(aws --region $region ecr get-login);'
-        cmd += ' docker pull {};'.format(ctr_def['image'])
-        cmd += ' docker service {}'.format(
-            'update' if update else 'create'
-        )
-        if not update:
-            cmd += ' --name {}'.format(ctr_def['name'])
+        ctr_def = task_mod.get_container_definition(app_task, task_name)
+        svc_name = f'{ctx["app"]}-{ctr_def["name"]}'
+        cmd = f'$(aws --region {ctx["region"]} ecr get-login);'
+        cmd += f' docker pull {ctr_def["image"]};'
+        cmd += f' docker service create'
+        cmd += f' --name {svc_name}'
         if replicas:
-            cmd += ' --replicas {}'.format(replicas)
+            cmd += f' --replicas {replicas}'
+        if ctr_def.get('cpu', None):
+            cmd += f' --reserve-cpu {ctr_def["cpu"]}'
+        if ctr_def.get('memoryReservation', None):
+            cmd += f' --reserve-memory {int(ctr_def["memoryReservation"]) * 1048576}'  # convert to bytes
+        cmd += ' --with-registry-auth'
         env.update(env_to_dict(ctr_def.get('environment', [])))
         cmd += env_to_string(
             dict_to_env(env),
-            opt='--env-add' if update else '-e'
+            opt='-e'
         )
         cmd += ports_to_string(
             ctr_def.get('portMappings', []),
-            opt='--publish-add' if update else '-p'
+            opt='-p'
         )
-        if not update:
-            cmd += ' --network all'
+        cmd += ' --network all'
         cmd += mounts_to_string(
             ctr_def.get('mountPoints', {}),
             self.get_mounts(task_name),
-            opt='--mount-add' if update else '--mount'
+            opt='--mount'
         )
-        if update:
-            cmd += ' --force'
-        if update:
-            cmd += ' --image '
-        else:
-            cmd += ' '
-        cmd += ctr_def['image']
+        cmd += ' ' + ctr_def['image']
         if ctr_def.get('command', None):
-            if update:
-                cmd += ' --args "'
-            else:
-                cmd += ' '
-            cmd += ' '.join(ctr_def['command'])
-            if update:
-                cmd += '"'
-        if update:
-            cmd += ' ' + ctr_def['name']
+            cmd += ' ' + ' '.join(ctr_def['command'])
         cmd = '\'' + cmd + '\''
-        self.create_volumes(volumes_to_dict(task.get('volumes', [])))
-        mach_mod = self.client.get_module('machine')
-        mach = mach_mod.get_selected()
+        self.make_volumes(volumes_to_dict(app_task.get('volumes', [])))
+        node_mod = self.client.get_module('node')
         try:
-            mach_mod.ssh_run(
+            node_mod.mgr_run(
                 cmd,
-                name=mach,
                 capture='discard'
             )
-        except self.CommandError:
+        except CommandError as e:
             self.error('failed to launch service, please check the task command')
+
+    def handle_update(self, args):
+        self.update(args.task, args.replicas)
+
+    def update(self, task_name, replicas=None):
+        ctx = self.get_context()
+        task_mod = self.client.get_module('task')
+        app_task = task_mod.get_app_task()
+        try:
+            env = env_to_dict(task_mod.get_container_definition(app_task, '_', fail=False)['environment'])
+        except TypeError:
+            env = {}
+        ctr_def = task_mod.get_container_definition(app_task, task_name)
+        svc_name = f'{ctx["app"]}-{ctr_def["name"]}'
+        cmd = f'$(aws --region {ctx["region"]} ecr get-login);'
+        cmd += f' docker pull {ctr_def["image"]};'
+        cmd += f' docker service update'
+        if replicas:
+            cmd += f' --replicas {replicas}'
+        if ctr_def.get('cpu', None):
+            cmd += f' --reserve-cpu {ctr_def["cpu"]}'
+        if ctr_def.get('memoryReservation', None):
+            cmd += f' --reserve-memory {int(ctr_def["memoryReservation"]) * 1048576}'  # convert to bytes
+        cmd += ' --with-registry-auth'
+        env.update(env_to_dict(ctr_def.get('environment', [])))
+        cmd += env_to_string(
+            dict_to_env(env),
+            opt='--env-add'
+        )
+        cmd += ports_to_string(
+            ctr_def.get('portMappings', []),
+            opt='--publish-add'
+        )
+        cmd += mounts_to_string(
+            ctr_def.get('mountPoints', {}),
+            self.get_mounts(task_name),
+            opt='--mount-add'
+        )
+        cmd += ' --force'
+        cmd += ' --image ' + ctr_def['image']
+        if ctr_def.get('command', None):
+            cmd += ' --args "' + ' '.join(ctr_def['command']) + '"'
+        cmd += f' {svc_name}'
+        cmd = '\'' + cmd + '\''
+        self.make_volumes(volumes_to_dict(app_task.get('volumes', [])))
+        node_mod = self.client.get_module('node')
+        try:
+            node_mod.mgr_run(
+                cmd,
+                capture='discard'
+            )
+        except CommandError as e:
+            self.error('failed to update service, please check the task command')
 
     def handle_remove(self, args):
         mach_mod = self.client.get_module('machine')
@@ -111,22 +177,6 @@ class Service(Module):
             task_mod = self.client.get_module('task')
             task = task_mod.get_task(task_mod.get_task_name())
             self.delete_volumes(volumes_to_dict(task.get('volumes', [])))
-
-    def handle_list(self, args):
-        mach_mod = self.client.get_module('machine')
-        mach = mach_mod.get_selected()
-        if args.task:
-            mach_mod.ssh_run(
-                'docker service inspect {}'.format(args.task),
-                name=mach,
-                capture=False
-            )
-        else:
-            mach_mod.ssh_run(
-                'docker service ls',
-                name=mach,
-                capture=False
-            )
 
     def handle_logs(self, args):
         mach_mod = self.client.get_module('machine')
@@ -147,15 +197,13 @@ class Service(Module):
         task_mod = self.client.get_module('task')
         return task_mod.get_container_definition(task, name)
 
-    def create_volumes(self, volumes):
-        mach_mod = self.client.get_module('machine')
-        mach = mach_mod.get_selected()
+    def make_volumes(self, volumes):
+        node_mod = self.client.get_module('node')
         for name, src in volumes.items():
-            cmd = 'docker volume create --name {}'.format(name)
+            cmd = f'docker volume create --name {name}'
             try:
-                mach_mod.ssh_run(
+                mach_mod.mgr_run(
                     cmd,
-                    name=mach,
                     capture='discard'
                 )
             except self.CommandError:
@@ -176,15 +224,13 @@ class Service(Module):
                 pass
 
     def get_mounts(self, task):
-        mach_mod = self.client.get_module('machine')
-        mach = mach_mod.get_selected()
+        node_mod = self.client.get_module('node')
         try:
-            data = mach_mod.ssh_run(
-                'docker service inspect {}'.format(task),
-                name=mach,
+            data = node_mod.mgr_run(
+                f'docker service inspect {task}',
                 capture='json'
             )
-        except self.CommandError:
+        except CommandError:
             data = None
         if data:
             mounts = data[0]['Spec']['TaskTemplate']['ContainerSpec'].get('Mounts', [])
@@ -192,3 +238,6 @@ class Service(Module):
             return mounts
         else:
             return {}
+
+    def get_my_context(self):
+        return {}

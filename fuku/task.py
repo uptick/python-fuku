@@ -6,7 +6,8 @@ from .utils import (
     env_to_dict, dict_to_env,
     ports_to_dict, dict_to_ports,
     volumes_to_dict, dict_to_volumes,
-    mounts_to_dict, dict_to_mounts
+    mounts_to_dict, dict_to_mounts,
+    entity_already_exists
 )
 
 
@@ -26,145 +27,165 @@ class Task(Module):
         p = subp.add_parser('mk', help='make a task')
         p.add_argument('name', metavar='NAME', help='task name')
         p.add_argument('image', metavar='IMAGE', help='image name')
+        p.add_argument('--cpu', '-c', help='cpu reservation')
+        p.add_argument('--memory', '-m', help='memory reservation')
         p.set_defaults(task_handler=self.handle_make)
+
+        p = subp.add_parser('up', help='update a task')
+        p.add_argument('name', metavar='NAME', help='task name')
+        p.add_argument('image', metavar='IMAGE', help='image name')
+        p.add_argument('--cpu', '-c', help='cpu reservation')
+        p.add_argument('--memory', '-m', help='memory reservation')
+        p.set_defaults(task_handler=self.handle_update)
 
         # p = subp.add_parser('remove', help='remove a task')
         # p.add_argument('name')
         # p.set_defaults(task_handler=self.handle_remove)
 
-        # p = subp.add_parser('env', help='update environment')
-        # p.add_argument('--name', '-n')
-        # ssp = p.add_subparsers()
-        # p = ssp.add_parser('list')
-        # p.set_defaults(task_handler=self.handle_env_list)
-        # p = ssp.add_parser('set')
-        # p.add_argument('--file', '-f', help='load from file')
-        # p.add_argument('values', action=StoreKeyValuePair, nargs='*', help='key value pairs')
-        # p.set_defaults(task_handler=self.handle_env_set)
-        # p = ssp.add_parser('unset')
-        # p.add_argument('values', nargs='+', help='keys')
-        # p.set_defaults(task_handler=self.handle_env_unset)
+        p = subp.add_parser('env', help='manage environment')
+        p.add_argument('--name', '-n', help='task name')
+        ssp = p.add_subparsers()
+        p = ssp.add_parser('ls')
+        p.set_defaults(task_handler=self.handle_env_list)
+        p = ssp.add_parser('set')
+        p.add_argument('--file', '-f', help='load from file')
+        p.add_argument('values', metavar='VALUES', action=StoreKeyValuePair, nargs='*', help='key value pairs')
+        p.set_defaults(task_handler=self.handle_env_set)
+        p = ssp.add_parser('unset')
+        p.add_argument('values', metavar='VALUES', nargs='+', help='keys to remove')
+        p.set_defaults(task_handler=self.handle_env_unset)
 
-        # p = subp.add_parser('ports', help='manage ports')
-        # p.add_argument('name')
-        # ssp = p.add_subparsers()
-        # p = ssp.add_parser('set')
-        # p.add_argument('values', action=StorePortPair, nargs='+', help='port mappings')
-        # p.set_defaults(task_handler=self.handle_ports_set)
-        # p = ssp.add_parser('unset')
-        # p.add_argument('values', nargs='+', help='ports')
-        # p.set_defaults(task_handler=self.handle_ports_unset)
+        p = subp.add_parser('ports', help='manage ports')
+        p.add_argument('name', metavar='NAME', help='task name')
+        ssp = p.add_subparsers()
+        p = ssp.add_parser('ls')
+        p.set_defaults(task_handler=self.handle_ports_list)
+        p = ssp.add_parser('set')
+        p.add_argument('values', metavar='VALUES', action=StorePortPair, nargs='+', help='port mappings')
+        p.set_defaults(task_handler=self.handle_ports_set)
+        p = ssp.add_parser('unset')
+        p.add_argument('values', metavar='VALUES', nargs='+', help='ports')
+        p.set_defaults(task_handler=self.handle_ports_unset)
 
-        # p = subp.add_parser('volume', help='manage volumes')
-        # p.add_argument('name')
-        # ssp = p.add_subparsers()
-        # p = ssp.add_parser('add')
-        # p.add_argument('volume')
-        # p.add_argument('destination')
-        # p.add_argument('--source', '-s')
-        # p.set_defaults(task_handler=self.handle_volume_add)
-        # p = ssp.add_parser('remove')
-        # p.add_argument('volume')
-        # p.set_defaults(task_handler=self.handle_volume_remove)
+        p = subp.add_parser('volume', help='manage volumes')
+        p.add_argument('name', metavar='NAME', help='task name')
+        ssp = p.add_subparsers()
+        p = ssp.add_parser('add')
+        p.add_argument('volume', metavar='VOLUME', help='volume name')
+        p.add_argument('destination', metavar='DEST', help='container mount point')
+        p.add_argument('--source', '-s', help='source path')
+        p.set_defaults(task_handler=self.handle_volume_add)
+        p = ssp.add_parser('remove')
+        p.add_argument('volume', metavar='VOLUME', help='volume name')
+        p.set_defaults(task_handler=self.handle_volume_remove)
 
-        # p = subp.add_parser('command', help='set command')
-        # p.add_argument('name')
-        # p.add_argument('command', nargs='?')
-        # p.add_argument('--remove', '-r', action='store_true')
-        # p.set_defaults(task_handler=self.handle_command)
+        p = subp.add_parser('command', help='set command')
+        p.add_argument('name', metavar='NAME', help='task name')
+        p.add_argument('command', metavar='COMMAND', nargs='?', help='command to run')
+        p.add_argument('--remove', '-r', action='store_true')
+        p.set_defaults(task_handler=self.handle_command)
 
     def handle_list(self, args):
         self.list(args.name)
 
     def list(self, name):
-        ctx = self.get_context()
-        ecs = self.get_boto_client('ecs')
-        try:
-            app_task = ecs.describe_task_definition(
-                taskDefinition=ctx['app']
-            )
-        except:
+        app_task = self.get_app_task()
+        if not app_task:
             return
         if name:
-            ctr_def = self.get_container_definition(task, args.name)
+            ctr_def = self.get_container_definition(app_task, name)
             print(json.dumps(ctr_def, indent=2))
         else:
-            for cd in task['containerDefinitions']:
+            for cd in app_task['containerDefinitions']:
                 if cd['name'] != '_':
                     print(cd['name'])
 
     def handle_make(self, args):
-        self.add(args.name, args.image)
+        self.make(args.name, args.image, args.cpu, args.memory)
 
-    def make(self, name, image_name):
-        task_name = self.get_task_name()
-        img = self.client.get_module('image').get_image_name(image_name)
-        try:
-            task = self.get_task(task_name)
-        except self.CommandError:
-            task = None
-        if update:
-            if not task:
-                self.error('no such task')
-            ctr_def = self.get_container_definition(task, name)
-            ctr_def['image'] = img
-        else:
-            if not task:
-                task = {
-                    'family': task_name,
-                    'containerDefinitions': []
-                }
-            for cd in task['containerDefinitions']:
-                if cd['name'] == name:
-                    self.error('container definition with that name already exists')
-            ctr_def = {
-                'name': name,
-                'image': img,
-                'memoryReservation': 1  # required
+    def make(self, name, image_name, cpu=None, memory=None):
+        ctx = self.get_context()
+        img = self.client.get_module('image').image_name_to_uri(image_name)
+        app_task = self.get_app_task(ctx=ctx)
+        if not app_task:
+            app_task = {
+                'family': ctx['app'],
+                'containerDefinitions': []
             }
-            task['containerDefinitions'].append(ctr_def)
-        self.register_task(task)
+        for cd in app_task['containerDefinitions']:
+            if cd['name'] == name:
+                self.error('container definition with that name already exists')
+        ctr_def = {
+            'name': name,
+            'image': img,
+            'memoryReservation': int(memory or 1)
+        }
+        if cpu is not None:
+            ctr_def['cpu'] = cpu
+        app_task['containerDefinitions'].append(ctr_def)
+        self.register_task(app_task)
 
-    def handle_remove(self, args):
-        task_name = self.get_task_name()
-        if args.name:
-            task = self.get_task(task_name)
-            task['containerDefinitions'] = list(filter(lambda x: x['name'] != args.name, task['containerDefinitions']))
-            self.register_task(task)
-        else:
-            arns = self.run(
-                '$aws ecs list-task-definitions'
-                ' --family-prefix {}'
-                ' --query=taskDefinitionArns'.format(task_name),
-                capture='json'
-            )
-            for arn in arns:
-                print('{}'.format(arn))
-                self.run(
-                    '$aws ecs deregister-task-definition'
-                    ' --task-definition {}'.format(arn)
-                )
+    # def handle_remove(self, args):
+    #     task_name = self.get_task_name()
+    #     if args.name:
+    #         task = self.get_task(task_name)
+    #         task['containerDefinitions'] = list(filter(lambda x: x['name'] != args.name, task['containerDefinitions']))
+    #         self.register_task(task)
+    #     else:
+    #         arns = self.run(
+    #             '$aws ecs list-task-definitions'
+    #             ' --family-prefix {}'
+    #             ' --query=taskDefinitionArns'.format(task_name),
+    #             capture='json'
+    #         )
+    #         for arn in arns:
+    #             print('{}'.format(arn))
+    #             self.run(
+    #                 '$aws ecs deregister-task-definition'
+    #                 ' --task-definition {}'.format(arn)
+    #             )
+
+    def handle_update(self, args):
+        self.update(args.name, args.image, args.cpu, args.memory)
+
+    def update(self, name, image_name, cpu=None, memory=None):
+        ctx = self.get_context()
+        img = self.client.get_module('image').image_name_to_uri(image_name)
+        app_task = self.get_app_task(ctx=ctx)
+        if not app_task:
+            self.error('task not found')
+        ctr_def = self.get_container_definition(app_task, name)
+        ctr_def['image'] = img
+        if cpu is not None:
+            ctr_def['cpu'] = int(cpu)
+        if memory is not None:
+            ctr_def['memoryReservation'] = int(memory)
+        self.register_task(app_task)
 
     def handle_env_list(self, args):
-        name = args.name
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
+        self.env_list(args.name)
+
+    def env_list(self, name):
+        app_task = self.get_app_task()
         if not name:
             name = '_'
             try:
-                ctr_def = self.get_container_definition(task, name)
+                ctr_def = self.get_container_definition(app_task, name)
             except IndexError:
                 return
         else:
-            ctr_def = self.get_container_definition(task, name)
+            ctr_def = self.get_container_definition(app_task, name)
         env = env_to_dict(ctr_def['environment'])
         for k, v in env.items():
             print('%s=%s' % (k, v))
 
     def handle_env_set(self, args):
-        values = {}
-        if args.file:
-            with open(args.file, 'r') as inf:
+        self.env_set(args.name, values=args.values, file=args.file)
+
+    def env_set(self, name, values=None, file=None):
+        to_set = {}
+        if file is not None:
+            with open(file, 'r') as inf:
                 for line in inf:
                     line = line.strip()
                     ii = line.find('=')
@@ -172,48 +193,42 @@ class Task(Module):
                         continue
                     k = line[:ii]
                     v = line[ii + 1:]
-                    values[k] = v
-        values.update(args.values)
-        self.env_set(args.name, values)
-
-    def env_set(self, name, values):
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
+                    to_set[k] = v
+        to_set.update(values)
+        app_task = self.get_app_task()
         if not name:
             name = '_'
-            try:
-                self.run(
-                    '$aws ecr create-repository'
-                    ' --repository-name fuku'
+            ecr = self.get_boto_client('ecr')
+            with entity_already_exists():
+                ecr.create_repository(
+                    repositoryName='fuku'
                 )
-            except:
-                pass
-            try:
-                ctr_def = self.get_container_definition(task, name)
-            except IndexError:
-                img_mod = self.client.get_module('image')
+            ctr_def = self.get_container_definition(app_task, name, fail=False)
+            if not ctr_def:
+                img = self.client.get_module('image').get_uri('/fuku')
                 ctr_def = {
                     'name': name,
-                    'image': img_mod.get_uri('/fuku'),
+                    'image': img,
                     'environment': [],
                     'memoryReservation': 1  # required,
                 }
-                task['containerDefinitions'].append(ctr_def)
+                app_task['containerDefinitions'].append(ctr_def)
         else:
-            ctr_def = self.get_container_definition(task, name)
+            ctr_def = self.get_container_definition(app_task, name)
         env = env_to_dict(ctr_def['environment'])
-        env.update(values)
+        env.update(to_set)
         env = dict_to_env(env)
         ctr_def['environment'] = env
-        self.register_task(task)
+        self.register_task(app_task)
 
     def handle_env_unset(self, args):
         self.env_unset(args.name, args.values)
 
     def env_unset(self, name, keys):
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
-        ctr_def = self.get_container_definition(task, name)
+        app_task = self.get_app_task()
+        if not name:
+            name = '_'
+        ctr_def = self.get_container_definition(app_task, name)
         env = env_to_dict(ctr_def['environment'])
         for k in keys:
             try:
@@ -222,188 +237,120 @@ class Task(Module):
                 pass
         env = dict_to_env(env)
         ctr_def['environment'] = env
-        self.register_task(task)
+        self.register_task(app_task)
+
+    def handle_ports_list(self, args):
+        self.ports_list(args.name)
+
+    def ports_list(self, name):
+        app_task = self.get_app_task()
+        ctr_def = self.get_container_definition(app_task, name)
+        ports = ports_to_dict(ctr_def['portMappings'])
+        for k, v in ports.items():
+            print('%s:%s' % (k, v))
 
     def handle_ports_set(self, args):
         self.ports_set(args.name, args.values)
 
     def ports_set(self, name, values):
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
-        ctr_def = self.get_container_definition(task, name)
+        app_task = self.get_app_task()
+        ctr_def = self.get_container_definition(app_task, name)
         ports = ports_to_dict(ctr_def['portMappings'])
         for k, v in values.items():
             ports[int(k)] = int(v)
         ports = dict_to_ports(ports)
         ctr_def['portMappings'] = ports
-        self.register_task(task)
+        self.register_task(app_task)
 
     def handle_ports_unset(self, args):
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
-        ctr_def = self.get_container_definition(task, args.name)
+        self.ports_unset(args.name, args.values)
+
+    def ports_unset(self, name, values):
+        app_task = self.get_app_task()
+        ctr_def = self.get_container_definition(task, name)
         ports = ports_to_dict(ctr_def['portMappings'])
-        for p in args.values:
+        for p in values:
             try:
                 del ports[int(p)]
             except KeyError:
                 pass
         ports = dict_to_ports(ports)
         ctr_def['portMappings'] = ports
-        self.register_task(task)
+        self.register_task(app_task)
 
     def handle_volume_add(self, args):
         self.volume_add(args.name, args.volume, args.destination, args.source)
 
     def volume_add(self, ctr_name, vol_name, dst, src=None):
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
-        ctr_def = self.get_container_definition(task, ctr_name)
-        volumes = volumes_to_dict(task['volumes'])
+        app_task = self.get_app_task()
+        ctr_def = self.get_container_definition(app_task, ctr_name)
+        volumes = volumes_to_dict(app_task['volumes'])
         volumes[vol_name] = src
-        task['volumes'] = dict_to_volumes(volumes)
+        app_task['volumes'] = dict_to_volumes(volumes)
         mounts = mounts_to_dict(ctr_def['mountPoints'])
         mounts[vol_name] = dst
         ctr_def['mountPoints'] = dict_to_mounts(mounts)
-        self.register_task(task)
+        self.register_task(app_task)
 
     def handle_volume_remove(self, args):
         self.volume_remove(args.name, args.volume)
 
     def volume_remove(self, ctr_name, vol_name):
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
-        ctr_def = self.get_container_definition(task, ctr_name)
-        volumes = volumes_to_dict(task['volumes'])
+        app_task = self.get_app_task()
+        ctr_def = self.get_container_definition(app_task, ctr_name)
+        volumes = volumes_to_dict(app_task['volumes'])
         try:
             del volumes[vol_name]
         except KeyError:
             pass
-        task['volumes'] = dict_to_volumes(volumes)
+        app_task['volumes'] = dict_to_volumes(volumes)
         mounts = mounts_to_dict(ctr_def['mountPoints'])
         try:
             del mounts[vol_name]
         except KeyError:
             pass
         ctr_def['mountPoints'] = dict_to_mounts(mounts)
-        self.register_task(task)
+        self.register_task(app_task)
 
     def handle_command(self, args):
-        task_name = self.get_task_name()
-        task = self.get_task(task_name)
-        ctr_def = self.get_container_definition(task, args.name)
-        if args.remove:
+        self.command(args.name, args.command, args.remove)
+
+    def command(self, name, cmd, remove=False):
+        app_task = self.get_app_task()
+        ctr_def = self.get_container_definition(app_task, name)
+        if remove:
             try:
                 del ctr_def['command']
             except KeyError:
                 pass
         else:
-            ctr_def['command'] = [args.command]
-        self.register_task(task)
+            ctr_def['command'] = [cmd]
+        self.register_task(app_task)
 
-    # def handle_link(self, args):
-    #     self.link(args.task, args.name, args.link, args.remove)
-
-    # def link(self, task_name, ctr_name, link, remove=False):
-    #     task = self.get_task(task_name)
-    #     ctr_def = self.get_container_definition(task, ctr_name)
-    #     links = ctr_def.get('links', [])
-    #     if remove:
-    #         ctr_def['links'] = list(set(links).difference(set([link])))
-    #     else:
-    #         ctr_def['links'] = list(set(links).union(set([link])))
-    #     self.register_task(task)
-
-    # def handle_run(self, args):
-    #     self._run(args.name, args.task, args.restart, args.remove, args.stop)
-
-    # def _run(self, ctr_name, replicas=1, restart=False, remove=False, stop=False):
-    #     task = self.get_task(ctr_name)
-    #     ctr_def = self.get_container_definition(task, ctr_name)
-    #     mach_mod = self.client.get_module('machine')
-    #     mach = mach_mod.get_selected()
-    #     cmd = 'docker service create --name {}'.format(ctr_def['name'])
-    #     if replicas:
-    #         cmd += ' --replicas {}'.format(replicas)
-    #     cmd += env_to_string(ctr_def.get('environment', []))
-    #     cmd += ports_to_string(ctr_def.get('ports', []))
-    #     if stop or remove:
-    #         cmd += ' remove'
-    #         if remove:
-    #             cmd += ' -d'
-    #         if name:
-    #             cmd += ' ' + name
-    #     else:
-    #         cmd += ' run'
-    #         if name:
-    #             cmd += ' -n {}'.format(name)
-    #         if task:
-    #             cmd += ' -t {}'.format(task)
-    #         if restart:
-    #             cmd += ' -r'
-    #     data = mach_mod.ssh_run(
-    #         cmd,
-    #         name=mach,
-    #         capture='json'
-    #     )
-    #     if data['status'] != 'ok':
-    #         print(data['result'])
-
-    # def handle_logs(self, args):
-    #     mach_mod = self.client.get_module('machine')
-    #     mach = mach_mod.get_selected()
-    #     cmd = 'docker logs {}'.format(args.name)
-    #     mach_mod.ssh_run(
-    #         cmd,
-    #         name=mach,
-    #         tty=True,
-    #         capture=False
-        # )
-
-    def get_task(self, name, escape=True):
-        # app = self.client.get_selected('app')
-        # name = '%s-%s' % (app, name)
-        data = self.run(
-            '$aws ecs describe-task-definition'
-            ' --task-definition {}'
-            ' --query taskDefinition'
-            .format(
-                name,
-            ),
-            capture='json'
-        )
-        if escape:
-            tmp = json.dumps(data)
-            tmp = tmp.replace('$', '${dollar}')
-            data = json.loads(tmp)
-        return data
-
-    def get_container_definition(self, task, name):
+    def get_app_task(self, ctx=None):
+        if ctx is None:
+            ctx = self.get_context()
+        ecs = self.get_boto_client('ecs')
         try:
-            ctr_def = list(filter(lambda x: x['name'] == name, task['containerDefinitions']))[0]
-        except KeyError:
-            self.error(f'task "{name}" does not exist')
-        return ctr_def
+            return ecs.describe_task_definition(
+                taskDefinition=ctx['app']
+            )['taskDefinition']
+        except:
+            pass
 
     def register_task(self, task):
-        cmd = (
-            '$aws ecs register-task-definition'
-            ' --family {}'
-            ' --container-definitions \'{}\''
-            .format(
-                task['family'],
-                json.dumps(task['containerDefinitions'])
-            )
-        )
-        volumes = task.get('volumes', [])
-        if volumes:
-            cmd += ' --volumes \'{}\''.format(
-                json.dumps(volumes)
-            )
-        self.run(cmd)
+        ecs = self.get_boto_client('ecs')
+        skip = set(['taskDefinitionArn', 'revision', 'status', 'requiresAttributes'])
+        ecs.register_task_definition(**dict([
+            (k, v) for k, v in task.items() if k not in skip
+        ]))
 
-    def get_task_name(self, name=None):
-        return self.client.get_selected('app')
+    def get_container_definition(self, task, name, fail=True):
+        try:
+            return list(filter(lambda x: x['name'] == name, task['containerDefinitions']))[0]
+        except (KeyError, IndexError):
+            if fail:
+                self.error(f'task "{name}" does not exist')
 
     def get_my_context(self):
         return {}

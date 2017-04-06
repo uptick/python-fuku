@@ -131,6 +131,14 @@ class Profile(Module):
         )
         self.delete_role(user, role_name)
 
+    def get_user_id(self):
+        profile = self.get_selected()
+        sts = self.get_boto_client('sts')
+        try:
+            return sts.get_caller_identity()['Account']
+        except:
+            return None
+
     def get_my_context(self):
         ctx = {}
         sel = self.get_selected()

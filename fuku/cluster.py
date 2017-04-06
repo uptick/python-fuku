@@ -107,7 +107,6 @@ class Cluster(Module):
         if pem_fn:
             with open(pem_fn, 'r') as pem_f:
                 pem_key = pem_f.read()
-        import pdb; pdb.set_trace()
         with open(path, 'w') as keyf:
             keyf.write(pem_key)
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
@@ -120,11 +119,17 @@ class Cluster(Module):
     def create_security_group(self, name, ec2=None):
         if ec2 is None:
             ec2 = self.get_boto_client('ec2')
+        user_id = self.client.get_module('profile').get_user_id()
+        sg_id = None
         with entity_already_exists():
-            ec2.create_security_group(
+            sg_id = ec2.create_security_group(
                 GroupName=f'fuku-{name}',
                 Description=f'{name} security group'
             )['GroupId']
+        if sg_id is None:
+            sg_id = ec2.describe_security_groups(
+                GroupNames=[f'fuku-{name}']
+            )['SecurityGroups'][0]['GroupId']
         with entity_already_exists():
             ec2.authorize_security_group_ingress(
                 GroupName=f'fuku-{name}',
@@ -133,38 +138,43 @@ class Cluster(Module):
                 ToPort=22,
                 CidrIp='0.0.0.0/0'
             )
-        # self.run(
-        #     '$aws ec2 authorize-security-group-ingress'
-        #     ' --group-name fuku-$app'
-        #     ' --protocol tcp'
-        #     ' --port 80'
-        #     ' --cidr 0.0.0.0/0',
-        #     {'app': name}
-        # )
-        # self.run(
-        #     '$aws ec2 authorize-security-group-ingress'
-        #     ' --group-name fuku-$app'
-        #     ' --protocol tcp'
-        #     ' --port 443'
-        #     ' --cidr 0.0.0.0/0',
-        #     {'app': name}
-        # )
-        # self.run(
-        #     '$aws ec2 authorize-security-group-ingress'
-        #     ' --group-name fuku-$app'
-        #     ' --protocol tcp'
-        #     ' --port 6379'
-        #     ' --cidr 0.0.0.0/0',
-        #     {'app': name}
-        # )
-        # self.run(
-        #     '$aws ec2 authorize-security-group-ingress'
-        #     ' --group-name fuku-$app'
-        #     ' --protocol tcp'
-        #     ' --port 5432'
-        #     ' --cidr 0.0.0.0/0',
-        #     {'app': name}
-        # )
+        with entity_already_exists():
+            ec2.authorize_security_group_ingress(
+                GroupName=f'fuku-{name}',
+                IpProtocol='tcp',
+                FromPort=80,
+                ToPort=80,
+                CidrIp='0.0.0.0/0'
+            )
+        with entity_already_exists():
+            ec2.authorize_security_group_ingress(
+                GroupName=f'fuku-{name}',
+                IpProtocol='tcp',
+                FromPort=443,
+                ToPort=443,
+                CidrIp='0.0.0.0/0'
+            )
+        with entity_already_exists():
+            ec2.authorize_security_group_ingress(
+                GroupName=f'fuku-{name}',
+                IpProtocol='tcp',
+                FromPort=5432,
+                ToPort=5432,
+                CidrIp='0.0.0.0/0'
+            )
+        with entity_already_exists():
+            ec2.authorize_security_group_ingress(
+                GroupName=f'fuku-{name}',
+                IpPermissions=[{
+                    'IpProtocol': 'tcp',
+                    'FromPort': 0,
+                    'ToPort': 65535,
+                    'UserIdGroupPairs': [{
+                        'UserId': user_id,
+                        'GroupId': sg_id
+                    }]
+                }]
+            )
         return id
 
     def get_security_group_id(self, name=None):
@@ -181,7 +191,7 @@ class Cluster(Module):
         logs = self.get_boto_client('logs')
         with entity_already_exists():
             logs.create_log_group(
-                LogGroupName=f'/{name}'
+                logGroupName=f'/{name}'
             )
 
     def get_my_context(self):

@@ -167,3 +167,6 @@ class Module(object):
     def get_boto_client(self, resource, ctx={}):
         self.setup_boto_session(ctx)
         return boto3.client(resource)
+
+    def get_my_context(self):
+        return {}

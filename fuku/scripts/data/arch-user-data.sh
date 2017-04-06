@@ -7,7 +7,7 @@ exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 # Prepare some packages.
 pacman -Syy
 pacman --noconfirm -S docker python-pip iotop # unzip
-pip install awscli
+pip install awscli boto3
 
 # Configure docker and launch.
 groupadd docker
@@ -78,3 +78,48 @@ EOF
 # Startup metrics collection.
 systemctl start collectd
 systemctl enable collectd
+
+# Write and execute a script to try and register us with
+# the swarm.
+mkdir -p /usr/local/bin
+cat > /usr/local/bin/joinswarm.py <<EOF
+import boto3
+import json
+import subprocess
+ec2 = boto3.resource('ec2', region_name='ap-southeast-2')
+filters = [
+    {
+        'Name': 'tag:cluster',
+        'Values': ['abasweb']
+    },
+    {
+        'Name': 'tag:node',
+        'Values': ['manager']
+    },
+    {
+        'Name': 'instance-state-name',
+        'Values': ['running']
+    }
+]
+for inst in ec2.instances.filter(Filters=filters):
+    print(f'trying to join swarm at {inst.id}')
+    try:
+        token, port = None, None
+        for tag in inst.tags:
+            if tag['Key'] == 'swarmtoken':
+                token = tag['Value']
+            if tag['Key'] == 'swarmport':
+                port = tag['Value']
+        if token is None:
+            raise Exception
+        subprocess.check_call(
+            f'docker swarm join --token {token} {inst.private_ip_address}:{port}',
+            shell=True
+        )
+    except:
+        print('failed')
+    else:
+        print('succeeded')
+        break
+EOF
+python /usr/local/bin/joinswarm.py

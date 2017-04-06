@@ -129,7 +129,9 @@ def entity_already_exists(hide=True):
                 'EntityAlreadyExists',
                 'InvalidKeyPair.Duplicate',
                 'InvalidGroup.Duplicate',
-                'InvalidPermission.Duplicate'
+                'InvalidPermission.Duplicate',
+                'RepositoryAlreadyExistsException',
+                'ResourceAlreadyExistsException'
         ]:
             raise
         if not hide:

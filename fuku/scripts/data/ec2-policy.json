@@ -39,6 +39,13 @@
     {
       "Effect": "Allow",
       "Action": [
+        "ec2:DescribeInstances"
+      ],
+      "Resource": ["arn:aws:s3:::$bucket/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
         "cloudwatch:PutMetricData"
       ],
       "Resource": [
