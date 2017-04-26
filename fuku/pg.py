@@ -3,7 +3,7 @@ import json
 
 from .module import Module
 from .db import get_rc_path
-from .utils import gen_secret
+from .utils import gen_secret, gen_name
 
 
 class Pg(Module):
@@ -34,10 +34,10 @@ class Pg(Module):
         p.add_argument('target', metavar='TARGET', nargs='?', help='target task name')
         p.set_defaults(pg_handler=self.handle_connect)
 
-        # p = subp.add_parser('select', help='select a postgres database')
-        # p.add_argument('name', nargs='?')
-        # p.add_argument('--show', '-s', action='store_true', help='show currently db')
-        # p.set_defaults(pg_handler=self.handle_select)
+        p = subp.add_parser('sl', help='select a postgres database')
+        p.add_argument('name', metavar='NAME', nargs='?', help='database to select')
+        p.add_argument('--show', '-s', action='store_true', help='show currently db')
+        p.set_defaults(pg_handler=self.handle_select)
 
         p = subp.add_parser('psql')
         p.add_argument('name', metavar='NAME', help='DB name')
@@ -47,9 +47,9 @@ class Pg(Module):
         # p.add_argument('output')
         # p.set_defaults(pg_handler=self.handle_dump)
 
-        # p = subp.add_parser('restore')
-        # p.add_argument('input')
-        # p.set_defaults(pg_handler=self.handle_restore)
+        p = subp.add_parser('restore', help='restore a database')
+        p.add_argument('input', metavar='INPUT', help='database dump file')
+        p.set_defaults(pg_handler=self.handle_restore)
 
     def handle_list(self, args):
         self.list(args.name)
@@ -62,13 +62,13 @@ class Pg(Module):
             data = rds.describe_db_instances(
                 Filter=[{
                     'Key': 'Name',
-                    'Values': [f'{app}-{name}']
+                    'Values': [self.get_id(name)]
                 }]
             )
             print(json.dumps(data, indent=2))
         else:
             data = rds.describe_db_instances()
-            pre = f'{app}-'
+            pre = self.get_id('')
             for db in data['DBInstances']:
                 name = db['DBInstanceIdentifier']
                 if name.startswith(pre):
@@ -81,9 +81,14 @@ class Pg(Module):
         ctx = self.get_context()
         app = ctx['app']
         password = gen_secret(16)
-        inst_id = f'{app}-{name}'
+        inst_id = self.get_id(name)
         sg_id = self.client.get_module('cluster').get_security_group_id()
         rds = self.get_boto_client('rds')
+        rds.create_db_subnet_group(
+            DBSubnetGroupName=inst_id,
+            DBSubnetGroupDescription=f'Subnet group for {inst_id}',
+            SubnetIds=[sn.id for sn in self.get_module('cluster').iter_public_subnets(ctx['cluster'])]
+        )
         data = rds.create_db_instance(
             DBName=name,
             DBInstanceIdentifier=inst_id,
@@ -93,11 +98,19 @@ class Pg(Module):
             MasterUsername=name,
             MasterUserPassword=password,
             BackupRetentionPeriod=backup,
+            DBSubnetGroupName=inst_id,
             VpcSecurityGroupIds=[sg_id],
-            Tags=[{
-                'Key': 'app',
-                'Value': app
-            }]
+            PubliclyAccessible=True,
+            Tags=[
+                {
+                    'Key': 'cluster',
+                    'Value': ctx['cluster']
+                },
+                {
+                    'Key': 'app',
+                    'Value': app
+                }
+            ]
         )
         waiter = rds.get_waiter('db_instance_available')
         waiter.wait(
@@ -111,7 +124,7 @@ class Pg(Module):
     def cache(self, name, password):
         ctx = self.get_context()
         data = self.get_endpoint(name)
-        path = os.path.join(get_rc_path(), 'apps', ctx['app'], f'{name}.pgpass')
+        path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
         try:
             os.makedirs(os.path.dirname(path))
         except OSError:
@@ -129,7 +142,7 @@ class Pg(Module):
             'gpg -c {}'.format(path)
         )
         s3 = self.get_boto_client('s3')
-        s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["app"]}/{name}.pgpass.gpg')
+        s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass.gpg')
 
     def handle_connect(self, args):
         self.connect(args.name, args.target)
@@ -167,7 +180,7 @@ class Pg(Module):
 
     def psql(self, name):
         ctx = self.get_context()
-        path = os.path.join(get_rc_path(), 'apps', ctx['app'], f'{name}.pgpass')
+        path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
         endpoint = self.get_endpoint(name)
         self.run(
             'psql -h {} -p {} -U {} -d {}'.format(
@@ -181,9 +194,10 @@ class Pg(Module):
         )
 
     def handle_dump(self, args):
+        ctx = self.get_context()
         app = self.client.get_selected('app')
         name = self.get_selected()
-        path = os.path.join(get_rc_path(), 'apps', app, '%s.pgpass' % name)
+        path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
         endpoint = self.get_endpoint(name)
         self.run(
             'pg_dump -Fc --no-acl --no-owner -h {} -p {} -U {} -d {} -f {}'.format(
@@ -198,25 +212,31 @@ class Pg(Module):
         )
 
     def handle_restore(self, args):
-        app = self.client.get_selected('app')
+        ctx = self.get_context()
         name = self.get_selected()
-        path = os.path.join(get_rc_path(), 'apps', app, '%s.pgpass' % name)
+        path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
         endpoint = self.get_endpoint(name)
         self.run(
-            'pg_restore -n public --clean --no-acl --no-owner -h {} -p {} -U {} -d {} {}'.format(
-                endpoint['Address'],
-                endpoint['Port'],
-                name,
-                name,
-                args.input
-            ),
+            f'psql -h {endpoint["Address"]} -p {endpoint["Port"]} -U {name} {name} -c \'DROP SCHEMA public CASCADE; CREATE SCHEMA public;\'',
+            env={'PGPASSFILE': path}
+        )
+        self.run(
+            f'pg_restore --no-acl --no-owner -h {endpoint["Address"]} -p {endpoint["Port"]} -U {name} -d {name} {args.input}',
             capture=False,
             env={'PGPASSFILE': path}
         )
 
+    def get_id(self, name):
+        ctx = self.get_context()
+        return f'fuku-{ctx["cluster"]}-{ctx["app"]}-{name}'
+
+    def get_rc_path(self):
+        ctx = self.get_context()
+        return os.path.join(get_rc_path(), ctx['cluster'], ctx['app'])
+
     def get_endpoint(self, name):
         ctx = self.get_context()
-        inst_id = f'{ctx["app"]}-{name}'
+        inst_id = self.get_id(name)
         rds = self.get_boto_client('rds')
         try:
             return rds.describe_db_instances(
@@ -227,7 +247,7 @@ class Pg(Module):
 
     def get_url(self, name):
         ctx = self.get_context()
-        path = os.path.join(get_rc_path(), 'apps', ctx['app'], f'{name}.pgpass')
+        path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
         try:
             with open(path, 'r') as inf:
                 data = inf.read()
@@ -237,11 +257,12 @@ class Pg(Module):
         return 'postgres://{}:{}@{}:{}/{}'.format(user, pw, host, port, db)
 
     def get_pgpass_file(self, name):
+        ctx = self.get_context()
         app = self.client.get_selected('app')
-        path = os.path.join(get_rc_path(), 'apps', app, '%s.pgpass' % name)
+        path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
         if not os.path.exists(path):
             self.run(
-                '$aws s3 cp s3://$bucket/fuku/{}/{}.pgpass.gpg {}.gpg'.format(app, name, path)
+                '$aws s3 cp s3://$bucket/fuku/{}/{}/{}.pgpass.gpg {}.gpg'.format(app, ctx['cluster'], name, path)
             )
             self.run(
                 'gpg -o {} -d {}.gpg'.format(path, path)

@@ -74,6 +74,12 @@ class Image(Module):
 
     def push(self, repo):
         ctx = self.get_context()
+        ii = repo.find(':')
+        if ii >= 0:
+            tag = ':' + repo[ii + 1:]
+            repo = repo[:ii]
+        else:
+            tag = ''
         if repo[0] == '/':
             local = self.store.get('images', {}).get(repo, {}).get('local', None)
         else:
@@ -82,9 +88,9 @@ class Image(Module):
             self.error('image not connected')
         ecr = self.get_boto_client('ecr')
         uri = self.get_uri(repo, ctx=ctx, ecr=ecr)
-        self.run(f'docker tag {local} {uri}:latest')
+        self.run(f'docker tag {local} {uri}{tag}')
         self.login(ctx=ctx)
-        self.run(f'docker push {uri}:latest', capture=False)
+        self.run(f'docker push {uri}{tag}', capture=False)
 
     def iter_repositories(self, ecr=None, ctx=None):
         if ctx is None:
@@ -111,10 +117,16 @@ class Image(Module):
             repo = f'{ctx["app"]}-{repo}'
         else:
             repo = repo[1:]
+        ii = repo.rfind(':')
+        if ii > -1:
+            tag = ':' + repo[ii + 1:]
+            repo = repo[:ii]
+        else:
+            tag = ''
         try:
             return ecr.describe_repositories(
                 repositoryNames=[repo]
-            )['repositories'][0]['repositoryUri']
+            )['repositories'][0]['repositoryUri'] + tag
         except KeyError:
             self.error('unknown repository')
 

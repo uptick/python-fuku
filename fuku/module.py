@@ -18,6 +18,7 @@ class Module(object):
         self.db = db
         self.store = self.db.setdefault(self.name, {})
         self.client = client
+        self.use_context = True
         self._checks = {}
 
     def add_arguments(self, parser):
@@ -33,10 +34,10 @@ class Module(object):
         if '/' in name:
             self.error('no slashes in names allowed')
 
-    def get_context(self, ctx={}, skip_local=False):
+    def get_context(self, ctx={}, use_context=True):
         for dep in self.client.iter_dependent_modules(self):
             ctx = dep.get_context(ctx)
-        if not skip_local:
+        if self.use_context and use_context:
             ctx.update(self.get_my_context())
         return ctx
 
@@ -152,7 +153,7 @@ class Module(object):
         return value
 
     def setup_boto_session(self, ctx={}):
-        ctx = self.get_context(ctx, skip_local=True)
+        ctx = self.get_context(ctx, use_context=False)
         kwargs = {}
         if 'region' in ctx:
             kwargs['region_name'] = ctx['region']
@@ -167,6 +168,27 @@ class Module(object):
     def get_boto_client(self, resource, ctx={}):
         self.setup_boto_session(ctx)
         return boto3.client(resource)
+
+    def puts3(self, key, value):
+        ctx = self.get_context()
+        s3 = self.get_boto_client('s3')
+        s3.put_object(
+            Bucket=ctx['bucket'],
+            Key=f'fuku/{key}',
+            Body=json.dumps(value)
+        )
+
+    def gets3(self, key):
+        try:
+            ctx = self.get_context()
+            s3 = self.get_boto_client('s3')
+            data = s3.get_object(
+                Bucket=ctx['bucket'],
+                Key=f'fuku/{key}',
+            )['Body'].read().decode()
+            return json.loads(data)
+        except:
+            return None
 
     def get_my_context(self):
         return {}

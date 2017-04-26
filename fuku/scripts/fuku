@@ -6,11 +6,11 @@ from fuku.configuration import Configuration
 from fuku.profile import Profile
 from fuku.region import Region
 from fuku.cluster import Cluster
-from fuku.node import Node
-from fuku.app import App
+from fuku.node import Node, EcsNode
+from fuku.app import App, EcsApp
 from fuku.image import Image
 from fuku.task import Task
-from fuku.service import Service
+from fuku.service import Service, EcsService
 # from fuku.app import App
 # from fuku.machine import Machine
 # from fuku.image import Image
@@ -19,8 +19,8 @@ from fuku.service import Service
 # # from fuku.container import Container
 from fuku.pg import Pg
 # from fuku.ssl import SSL
-from fuku.redis import Redis
-# from fuku.metrics import Metrics
+from fuku.redis import Redis, EcsRedis
+from fuku.metrics import Metrics
 
 
 if __name__ == '__main__':
@@ -28,12 +28,10 @@ if __name__ == '__main__':
     cli.add_modules(
         Session, Configuration,
         Profile, Region,
-        Cluster, Node,
-        App,
-        Image, Task, Service,
-        Redis, Pg
-        # Profile, Region, App, Machine, Image,
-        # Task, Service, Postgres, SSL, Redis,
-        # Metrics
+        Cluster, EcsNode,
+        EcsApp,
+        Image, Task, EcsService,
+        EcsRedis, Pg,
+        Metrics
     )
     cli.entry()

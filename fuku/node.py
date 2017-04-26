@@ -23,8 +23,15 @@ class Node(Module):
 
         p = subp.add_parser('mk', help='make a node')
         p.add_argument('name', metavar='NAME', help='node name')
-        p.add_argument('--manager', '-m', action='store_true', help='manager node')
+        p.add_argument('--manager', '-m', action='store_true', help='manager node (Swarm)')
         p.set_defaults(node_handler=self.handle_make)
+
+        p = subp.add_parser('rm', help='remove a node')
+        p.add_argument('name', metavar='NAME', help='node name')
+        p.set_defaults(node_handler=self.handle_remove)
+
+        p = subp.add_parser('bastion', help='make a bastion node')
+        p.set_defaults(node_handler=self.handle_bastion)
 
         p = subp.add_parser('ssh', help='SSH to a node')
         p.add_argument('name', metavar='NAME', nargs='?', help='node name')
@@ -66,25 +73,35 @@ class Node(Module):
         ctx = self.get_context({'node': name})
         ec2 = self.get_boto_client('ec2')
         image = self.ami_map[ctx['region']]
-        sg_id = self.client.get_module('cluster').get_security_group_id()
+        sg_id = self.get_module('cluster').get_security_group_id()
+        sn = self.get_module('cluster').get_private_subnet()
+        opts = {
+            'ImageId': image,
+            'SubnetId': sn.id,
+            'KeyName': f'fuku-{ctx["cluster"]}',
+            'SecurityGroupIds': [sg_id],
+            'InstanceType': 't2.micro',
+            'IamInstanceProfile': {
+                'Name': 'ec2-profile'
+            },
+            'MinCount': 1,
+            'MaxCount': 1
+        }
         with self.template_file('arch-user-data.sh', ctx) as user_data:
-            inst = ec2.run_instances(
-                ImageId=image,
-                KeyName=f'fuku-{ctx["cluster"]}',
-                SecurityGroupIds=[sg_id],
-                UserData=user_data,
-                InstanceType='t2.micro',
-                IamInstanceProfile={
-                    'Name': 'ec2-profile'
-                },
-                MinCount=1,
-                MaxCount=1
-            )
+            opts['UserData'] = user_data
+            inst = ec2.run_instances(**opts)
         inst_id = inst['Instances'][0]['InstanceId']
         self.tag_instance(inst_id, name, manager, ec2=ec2, ctx=ctx)
         self.wait(name)
         if manager:
             self.init_swarm(name)
+
+    def handle_remove(self, args):
+        self.remove(args.name)
+
+    def remove(self, name):
+        inst = self.get_instance(name)
+        inst.terminate()
 
     def handle_init_swarm(self, args):
         self.init_swarm(args.name)
@@ -174,7 +191,7 @@ class Node(Module):
         waiter.wait(InstanceIds=[inst.id])
 
     def handle_ssh(self, args):
-        self.ssh_run('', args.name)
+        self.ssh_run('', args.name, tty=True)
 
     def handle_reboot(self, args):
         self.reboot(args.name)
@@ -213,7 +230,7 @@ class Node(Module):
             },
             {
                 'Name': 'instance-state-name',
-                'Values': ['pending', 'running', 'shutting-down', 'stopping', 'stopped']
+                'Values': ['pending', 'running', 'stopping', 'stopped']
             }
         ]
         for inst in ec2.instances.filter(Filters=filters):
@@ -250,6 +267,9 @@ class Node(Module):
             self.error(f'no node in cluster "{cluster}" with name "{name}"')
         return insts[0]
 
+    def get_bastion(self):
+        return self.get_instance('bastion')
+
     def iter_managers(self):
         ctx = self.get_context()
         ec2 = self.get_boto_resource('ec2')
@@ -270,14 +290,76 @@ class Node(Module):
         for inst in ec2.instances.filter(Filters=filters):
             yield inst
 
+    def iter_nodes(self):
+        ctx = self.get_context()
+        ec2 = self.get_boto_resource('ec2')
+        filters = [
+            {
+                'Name': 'tag:cluster',
+                'Values': [ctx['cluster']]
+            },
+            {
+                'Name': 'instance-state-name',
+                'Values': ['running']
+            }
+        ]
+        for inst in ec2.instances.filter(Filters=filters):
+            yield inst
+
     def ssh_run(self, cmd, name=None, inst=None, tty=False, capture=None):
         ctx = self.get_context()
         if inst is None:
             name = name or ctx['node']
             inst = self.get_instance(name)
-        ip = inst.public_ip_address
-        full_cmd = f'ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -i "{ctx["pem"]}" root@{ip} {cmd}'
+        bastion = self.get_bastion()
+        ip = bastion.public_ip_address
+        priv_ip = inst.private_ip_address
+        # full_cmd = f'ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -i "{ctx["pem"]}" root@{ip} {cmd}'
+        full_cmd = f'ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -A ec2-user@{ip} ssh{" -t" if tty else ""} {priv_ip} {cmd}'
         return self.run(full_cmd, capture=capture)
+
+    def handle_bastion(self, args):
+        self.bastion()
+
+    def bastion(self):
+        name = 'bastion'
+        ctx = self.get_context()
+        ec2 = self.get_boto_client('ec2')
+        image = self.ami_map[ctx['region']]
+        sg_id = self.get_module('cluster').get_security_group_id()
+        sn = self.get_module('cluster').get_public_subnet()
+        opts = {
+            'ImageId': image,
+            'NetworkInterfaces': [
+                {
+                    'DeviceIndex': 0,
+                    'SubnetId': sn.id,
+                    'Groups': [sg_id],
+                    'AssociatePublicIpAddress': True
+                }
+            ],
+            'KeyName': f'fuku-{ctx["cluster"]}',
+            # 'SecurityGroupIds': [sg_id],
+            'InstanceType': 't2.nano',
+            'IamInstanceProfile': {
+                'Name': 'ec2-profile'
+            },
+            'MinCount': 1,
+            'MaxCount': 1
+        }
+        inst = ec2.run_instances(**opts)
+        inst_id = inst['Instances'][0]['InstanceId']
+        ec2.create_tags(
+            Resources=[inst_id],
+            Tags=[
+                {'Key': 'Name', 'Value': f'fuku-{ctx["cluster"]}-{name}'},
+                {'Key': 'cluster', 'Value': f'{ctx["cluster"]}'},
+                {'Key': 'name', 'Value': f'{name}'},
+                {'Key': 'bastion', 'Value': 'true'}
+            ]
+        )
+        self.wait(name)
+        return inst_id
 
     def mgr_run(self, cmd, tty=False, capture=None):
         try:
@@ -286,9 +368,80 @@ class Node(Module):
             self.error('no managers available')
         return self.ssh_run(cmd, inst=mgr, tty=tty, capture=capture)
 
+    def all_run(self, cmd):
+        for node in self.iter_nodes():
+            self.ssh_run(cmd, inst=node, capture=False)
+
     def get_my_context(self):
         ctx = {}
         node = self.store_get('selected')
         if node is not None:
             ctx['node'] = node
         return ctx
+
+
+class EcsNode(Node):
+    ami_map = {
+        'ap-southeast-2': 'ami-fbe9eb98'
+    }
+
+    def add_arguments(self, parser):
+        subp = parser.add_subparsers(help='node help')
+
+        p = subp.add_parser('ls', help='list nodes')
+        p.add_argument('name', metavar='NAME', nargs='?', help='node name')
+        p.set_defaults(node_handler=self.handle_list)
+
+        p = subp.add_parser('mk', help='make a node')
+        p.add_argument('name', metavar='NAME', help='node name')
+        p.set_defaults(node_handler=self.handle_make)
+
+        p = subp.add_parser('rm', help='remove a node')
+        p.add_argument('name', metavar='NAME', help='node name')
+        p.set_defaults(node_handler=self.handle_remove)
+
+        p = subp.add_parser('bastion', help='make a bastion node')
+        p.set_defaults(node_handler=self.handle_bastion)
+
+        p = subp.add_parser('ssh', help='SSH to a node')
+        p.add_argument('name', metavar='NAME', nargs='?', help='node name')
+        p.set_defaults(node_handler=self.handle_ssh)
+
+        p = subp.add_parser('wait', help='wait for OK status')
+        p.add_argument('name', metavar='NAME', help='node name')
+        p.set_defaults(node_handler=self.handle_wait)
+
+        p = subp.add_parser('reboot', help='reboot a node')
+        p.add_argument('name', metavar='NAME', help='node name')
+        p.set_defaults(node_handler=self.handle_reboot)
+
+    def handle_make(self, args):
+        self.make(args.name)
+
+    def make(self, name):
+        self.validate(name)
+        existing = self.get_instance_names()
+        if name in existing:
+            self.error(f'node "{name}" already exists')
+        ctx = self.get_context({'node': name})
+        ec2 = self.get_boto_client('ec2')
+        image = self.ami_map[ctx['region']]
+        sg_id = self.get_module('cluster').get_security_group_id()
+        sn = self.get_module('cluster').get_private_subnet()
+        opts = {
+            'ImageId': image,
+            'SubnetId': sn.id,
+            'KeyName': f'fuku-{ctx["cluster"]}',
+            'SecurityGroupIds': [sg_id],
+            'InstanceType': 't2.micro',
+            'IamInstanceProfile': {
+                'Name': 'ec2-profile'
+            },
+            'MinCount': 1,
+            'MaxCount': 1,
+            'UserData': f'#!/bin/bash\necho ECS_CLUSTER=fuku-{ctx["cluster"]} >> /etc/ecs/ecs.config'
+        }
+        inst = ec2.run_instances(**opts)
+        inst_id = inst['Instances'][0]['InstanceId']
+        self.tag_instance(inst_id, name, False, ec2=ec2, ctx=ctx)
+        self.wait(name)

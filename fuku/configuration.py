@@ -2,6 +2,8 @@ from .module import Module
 
 
 class Configuration(Module):
+    dependencies = ['region']
+
     def __init__(self, **kwargs):
         super().__init__('configuration', **kwargs)
 
@@ -19,6 +21,12 @@ class Configuration(Module):
         self.bucket(args.name)
 
     def bucket(self, name):
+        s3 = self.get_boto_resource('s3')
+        bucket = s3.Bucket(name)
+        try:
+            bucket.load()
+        except:
+            bucket.create()
         self.store_set('bucket', name)
 
     def handle_list(self, args):

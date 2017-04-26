@@ -8,8 +8,6 @@ from .utils import entity_already_exists, limit_exceeded
 
 
 class Profile(Module):
-    dependencies = ['configuration']
-
     def __init__(self, **kwargs):
         super().__init__('profile', **kwargs)
         self.aws_path = os.path.expanduser('~/.aws/credentials')
@@ -83,6 +81,7 @@ class Profile(Module):
             iam.create_instance_profile(
                 InstanceProfileName=inst_name
             )
+        # TODO: Add AmazonEC2ContainerServiceforEC2Role policy to role
         with limit_exceeded():
             iam.add_role_to_instance_profile(
                 InstanceProfileName=inst_name,

@@ -29,6 +29,13 @@ class Service(Module):
         p.add_argument('--replicas', '-r', help='number of replicas')
         p.set_defaults(service_handler=self.handle_update)
 
+        p = subp.add_parser('redeploy', help='redeploy all')
+        p.set_defaults(service_handler=self.handle_redeploy)
+
+        p = subp.add_parser('rm', help='remove a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.set_defaults(service_handler=self.handle_remove)
+
         # p = subp.add_parser('remove')
         # p.add_argument('task')
         # p.add_argument('--volumes', '-v', action='store_true', help='remove volumes')
@@ -45,7 +52,7 @@ class Service(Module):
         ctx = self.get_context()
         node_mod = self.client.get_module('node')
         if task_name:
-            svc_name = f'{ctx["app"]}-{task_name}'
+            svc_name = self.get_name()
             try:
                 node_mod.mgr_run(
                     f'docker service inspect {svc_name}',
@@ -71,7 +78,7 @@ class Service(Module):
         except TypeError:
             env = {}
         ctr_def = task_mod.get_container_definition(app_task, task_name)
-        svc_name = f'{ctx["app"]}-{ctr_def["name"]}'
+        svc_name = self.get_name()
         cmd = f'$(aws --region {ctx["region"]} ecr get-login);'
         cmd += f' docker pull {ctr_def["image"]};'
         cmd += f' docker service create'
@@ -124,7 +131,7 @@ class Service(Module):
         except TypeError:
             env = {}
         ctr_def = task_mod.get_container_definition(app_task, task_name)
-        svc_name = f'{ctx["app"]}-{ctr_def["name"]}'
+        svc_name = self.get_name()
         cmd = f'$(aws --region {ctx["region"]} ecr get-login);'
         cmd += f' docker pull {ctr_def["image"]};'
         cmd += f' docker service update'
@@ -166,17 +173,20 @@ class Service(Module):
             self.error('failed to update service, please check the task command')
 
     def handle_remove(self, args):
-        mach_mod = self.client.get_module('machine')
-        mach = mach_mod.get_selected()
-        mach_mod.ssh_run(
-            'docker service rm {}'.format(args.task),
-            name=mach,
-            capture='discard'
-        )
-        if args.volumes:
-            task_mod = self.client.get_module('task')
-            task = task_mod.get_task(task_mod.get_task_name())
-            self.delete_volumes(volumes_to_dict(task.get('volumes', [])))
+        self.remove(args.task)
+
+    # def handle_remove(self, args):
+    #     mach_mod = self.client.get_module('machine')
+    #     mach = mach_mod.get_selected()
+    #     mach_mod.ssh_run(
+    #         'docker service rm {}'.format(args.task),
+    #         name=mach,
+    #         capture='discard'
+    #     )
+    #     if args.volumes:
+    #         task_mod = self.client.get_module('task')
+    #         task = task_mod.get_task(task_mod.get_task_name())
+    #         self.delete_volumes(volumes_to_dict(task.get('volumes', [])))
 
     def handle_logs(self, args):
         mach_mod = self.client.get_module('machine')
@@ -188,6 +198,13 @@ class Service(Module):
             tty=True,
             capture=False
         )
+
+    def handle_redeploy(self, args):
+        self.redeploy()
+
+    def redeploy(self):
+        for svc in self.iter_services():
+            self.update(svc)
 
     def get_task(self, name, escape=True):
         task_mod = self.client.get_module('task')
@@ -239,5 +256,152 @@ class Service(Module):
         else:
             return {}
 
-    def get_my_context(self):
-        return {}
+    def get_name(self, task_name):
+        ctx = self.get_context()
+        return f'{ctx["app"]}-{task_name}'
+
+
+class EcsService(Service):
+    def add_arguments(self, parser):
+        subp = parser.add_subparsers(help='service help')
+
+        p = subp.add_parser('ls', help='list services')
+        p.add_argument('task', metavar='TASK', nargs='?', help='task name')
+        p.set_defaults(service_handler=self.handle_list)
+
+        p = subp.add_parser('mk', help='make a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('--expose', '-e', action='store_true', help='expose through load-balancer')
+        p.add_argument('--replicas', '-r', help='number of replicas')
+        p.set_defaults(service_handler=self.handle_make)
+
+        p = subp.add_parser('up', help='update a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('--replicas', '-r', help='number of replicas')
+        p.set_defaults(service_handler=self.handle_update)
+
+        p = subp.add_parser('redeploy', help='redeploy all')
+        p.set_defaults(service_handler=self.handle_redeploy)
+
+        p = subp.add_parser('rm', help='remove a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.set_defaults(service_handler=self.handle_remove)
+
+    def list(self, task_name):
+        for svc in self.iter_services(task_name):
+            print(svc)
+
+    def handle_make(self, args):
+        self.make(args.task, args.replicas, args.expose)
+
+    def make(self, task_name, replicas=None, expose=False):
+        ctx = self.get_context()
+        cluster = f'fuku-{ctx["cluster"]}'
+        task_mod = self.client.get_module('task')
+        app_task = task_mod.get_task(None)
+        task = task_mod.get_task(task_name)
+        task['family'] = '_' + task['family']
+        env = env_to_dict(task_mod.get_container_definition(app_task, ctx['app'])['environment'])
+        ctr_def = task_mod.get_container_definition(task, task_name)
+        env.update(env_to_dict(ctr_def['environment']))
+        ctr_def['environment'] = dict_to_env(env)
+        task['containerDefinitions'] = [ctr_def]
+        ecs_cli = self.get_boto_client('ecs')
+        skip = set(['taskDefinitionArn', 'revision', 'status', 'requiresAttributes'])
+        task = ecs_cli.register_task_definition(**dict([
+            (k, v) for k, v in task.items() if k not in skip
+        ]))['taskDefinition']
+        # TODO: Deregister previous task definitions.
+        kwargs = {
+            'cluster': cluster,
+            'serviceName': f'fuku-{ctx["cluster"]}-{task_name}',
+            'taskDefinition': f'{task["family"]}:{task["revision"]}',
+            'desiredCount': int(replicas) if replicas is not None else 1,
+            'deploymentConfiguration': {
+                'maximumPercent': 200,
+                'minimumHealthyPercent': 50
+            },
+            'placementStrategy': [{
+                'type': 'spread',
+                'field': 'attribute:ecs.availability-zone'
+            }]
+        }
+        if expose:
+            kwargs['loadBalancers'] = [
+                {
+                    'targetGroupArn': self.get_module('app').get_target_group_arn(),
+                    'containerName': task_name,
+                    'containerPort': 80
+                }
+            ]
+            kwargs['role'] = 'ecsServiceRole'
+        ecs_cli.create_service(**kwargs)
+
+    def update(self, task_name, replicas=None):
+        ctx = self.get_context()
+        cluster = f'fuku-{ctx["cluster"]}'
+        task_mod = self.client.get_module('task')
+        app_task = task_mod.get_task(None)
+        task = task_mod.get_task(task_name)
+        task['family'] = '_' + task['family']
+        env = env_to_dict(task_mod.get_container_definition(app_task, ctx['app'])['environment'])
+        ctr_def = task_mod.get_container_definition(task, task_name)
+        env.update(env_to_dict(ctr_def['environment']))
+        ctr_def['environment'] = dict_to_env(env)
+        task['containerDefinitions'] = [ctr_def]
+        ecs_cli = self.get_boto_client('ecs')
+        skip = set(['taskDefinitionArn', 'revision', 'status', 'requiresAttributes'])
+        task = ecs_cli.register_task_definition(**dict([
+            (k, v) for k, v in task.items() if k not in skip
+        ]))['taskDefinition']
+        # TODO: Deregister previous task definitions.
+        kwargs = {
+            'cluster': cluster,
+            'service': f'fuku-{ctx["cluster"]}-{task_name}',
+            'taskDefinition': f'{task["family"]}:{task["revision"]}',
+        }
+        if replicas:
+            kwargs['desiredCount'] = int(replicas) if replicas is not None else 1
+        ecs_cli.update_service(**kwargs)
+
+    def scale(self, task_name, replicas=None):
+        ctx = self.get_context()
+        cluster = f'fuku-{ctx["cluster"]}'
+        family = f'_fuku-{ctx["cluster"]}-{ctx["app"]}-{task_name}'
+        ecs_cli = self.get_boto_client('ecs')
+        task = ecs_cli.describe_task_definition(
+            taskDefinition=family
+        )['taskDefinition']
+        ecs_cli.update_service(
+            cluster=cluster,
+            service=f'fuku-{ctx["cluster"]}-{task_name}',
+            taskDefinition=f'{family}:{task["revision"]}',
+            desiredCount=int(replicas) if replicas is not None else 1
+        )
+
+    def remove(self, task_name):
+        self.scale(task_name, 0)
+        ctx = self.get_context()
+        cluster = f'fuku-{ctx["cluster"]}'
+        ecs_cli = self.get_boto_client('ecs')
+        svc = f'fuku-{ctx["cluster"]}-{task_name}'
+        # waiter = ecs_cli.get_waiter('services_inactive')
+        # waiter.wait(
+        #     cluster=cluster,
+        #     services=[svc]
+        # )
+        ecs_cli.delete_service(
+            cluster=cluster,
+            service=svc
+        )
+
+    def iter_services(self, task_name=None):
+        ecs_cli = self.get_boto_client('ecs')
+        paginator = ecs_cli.get_paginator('list_services')
+        ctx = self.get_context()
+        cluster = f'fuku-{ctx["cluster"]}'
+        services = paginator.paginate(cluster=cluster)
+        for svcs in services:
+            for s in svcs['serviceArns']:
+                ii = s.rfind('-')
+                yield s[ii + 1:]

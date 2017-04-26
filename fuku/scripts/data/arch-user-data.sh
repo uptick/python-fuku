@@ -11,7 +11,7 @@ pip install awscli boto3
 
 # Configure docker and launch.
 groupadd docker
-sed -i 's!dockerd!dockerd --log-driver=awslogs --log-opt awslogs-region=$region --log-opt awslogs-group=/$cluster --log-opt awslogs-stream=$node!g' /usr/lib/systemd/system/docker.service
+sed -i 's!dockerd!dockerd --log-driver=awslogs --log-opt awslogs-region=$region --log-opt awslogs-group=/$cluster --log-opt tag="{{.Name}}"!g' /usr/lib/systemd/system/docker.service
 systemctl enable docker
 systemctl start docker
 
@@ -121,5 +121,37 @@ for inst in ec2.instances.filter(Filters=filters):
     else:
         print('succeeded')
         break
+EOF
+python /usr/local/bin/joinswarm.py
+
+# Write and execute a script to enable our metrics automatically.
+mkdir -p /usr/local/bin
+cat > /usr/local/bin/joinswarm.py <<EOF
+import boto3
+import json
+import subprocess
+s3 = boto3.client('s3', region_name='ap-southeast-2')
+try:
+    data = s3.get_object(
+        Bucket='$bucket',
+        Key='fuku/$cluster/metrics.json'
+    )['Body'].read().decode()
+    data = json.loads(data)
+except Exception as e:
+    raise e
+    data = {}
+for task, mets in data.items():
+    for met in mets:
+        m = f'docker-{task}.*-{met}.percent-'
+        print(f'adding "{m}" to metrics')
+        try:
+            subprocess.check_call(
+                f'echo "{m}" >> /usr/share/collectd/collectd-cloudwatch/src/cloudwatch/config/whitelist.conf',
+                shell=True
+	    )
+        except:
+            print(' failed')
+        else:
+            print(' okay')
 EOF
 python /usr/local/bin/joinswarm.py

@@ -28,19 +28,19 @@ class Task(Module):
         p.add_argument('name', metavar='NAME', help='task name')
         p.add_argument('image', metavar='IMAGE', help='image name')
         p.add_argument('--cpu', '-c', help='cpu reservation')
-        p.add_argument('--memory', '-m', help='memory reservation')
+        p.add_argument('--memory', '-m', help='memory reservation (MiB)')
         p.set_defaults(task_handler=self.handle_make)
 
         p = subp.add_parser('up', help='update a task')
         p.add_argument('name', metavar='NAME', help='task name')
         p.add_argument('image', metavar='IMAGE', help='image name')
         p.add_argument('--cpu', '-c', help='cpu reservation')
-        p.add_argument('--memory', '-m', help='memory reservation')
+        p.add_argument('--memory', '-m', help='memory reservation (MiB)')
         p.set_defaults(task_handler=self.handle_update)
 
-        # p = subp.add_parser('remove', help='remove a task')
-        # p.add_argument('name')
-        # p.set_defaults(task_handler=self.handle_remove)
+        p = subp.add_parser('rm', help='remove a task')
+        p.add_argument('name', metavar='NAME', help='task name')
+        p.set_defaults(task_handler=self.handle_remove)
 
         p = subp.add_parser('env', help='manage environment')
         p.add_argument('--name', '-n', help='task name')
@@ -85,99 +85,101 @@ class Task(Module):
         p.add_argument('--remove', '-r', action='store_true')
         p.set_defaults(task_handler=self.handle_command)
 
+        p = subp.add_parser('prune', help='remove unused task definitions')
+        p.set_defaults(task_handler=self.handle_prune)
+
     def handle_list(self, args):
         self.list(args.name)
 
     def list(self, name):
-        app_task = self.get_app_task()
-        if not app_task:
-            return
         if name:
-            ctr_def = self.get_container_definition(app_task, name)
+            task = self.get_task(name)
+            ctr_def = self.get_container_definition(task, name)
             print(json.dumps(ctr_def, indent=2))
         else:
-            for cd in app_task['containerDefinitions']:
-                if cd['name'] != '_':
-                    print(cd['name'])
+            for task in self.iter_task_families(name):
+                ii = task.rfind('-') + 1
+                print(task[ii:])
 
     def handle_make(self, args):
         self.make(args.name, args.image, args.cpu, args.memory)
 
     def make(self, name, image_name, cpu=None, memory=None):
         ctx = self.get_context()
-        img = self.client.get_module('image').image_name_to_uri(image_name)
-        app_task = self.get_app_task(ctx=ctx)
-        if not app_task:
-            app_task = {
-                'family': ctx['app'],
-                'containerDefinitions': []
-            }
-        for cd in app_task['containerDefinitions']:
-            if cd['name'] == name:
-                self.error('container definition with that name already exists')
+        img_uri = self.client.get_module('image').image_name_to_uri(image_name)
+        task = self.get_task(name, ctx=ctx, fail=False)
+        if task:
+            self.error(f'task "{name}" already exists')
+        task = {
+            'family': self.get_task_family(name),
+            'containerDefinitions': []
+        }
         ctr_def = {
             'name': name,
-            'image': img,
-            'memoryReservation': int(memory or 1)
+            'image': img_uri,
+            'memoryReservation': int(memory or 1),
+            'logConfiguration': {
+                'logDriver': 'awslogs',
+                'options': {
+                    'awslogs-group': f'/{ctx["cluster"]}',
+                    'awslogs-regions': ctx['region'],
+                    'awslogs-stream-prefix': ctx['app']
+                }
+            }
         }
         if cpu is not None:
             ctr_def['cpu'] = cpu
-        app_task['containerDefinitions'].append(ctr_def)
-        self.register_task(app_task)
+        task['containerDefinitions'].append(ctr_def)
+        self.register_task(task)
 
-    # def handle_remove(self, args):
-    #     task_name = self.get_task_name()
-    #     if args.name:
-    #         task = self.get_task(task_name)
-    #         task['containerDefinitions'] = list(filter(lambda x: x['name'] != args.name, task['containerDefinitions']))
-    #         self.register_task(task)
-    #     else:
-    #         arns = self.run(
-    #             '$aws ecs list-task-definitions'
-    #             ' --family-prefix {}'
-    #             ' --query=taskDefinitionArns'.format(task_name),
-    #             capture='json'
-    #         )
-    #         for arn in arns:
-    #             print('{}'.format(arn))
-    #             self.run(
-    #                 '$aws ecs deregister-task-definition'
-    #                 ' --task-definition {}'.format(arn)
-    #             )
+    def handle_remove(self, args):
+        self.remove(args.name)
+
+    def remove(self, name):
+
+        # Deregister the task definitions.
+        ecs_cli = self.get_boto_client('ecs')
+        paginator = ecs_cli.get_paginator('list_task_definitions')
+        family = self.get_task_family(name)
+        task_defs = paginator.paginate(
+            familyPrefix=family
+        )
+        for results in task_defs:
+            for arn in results['taskDefinitionArns']:
+                ecs_cli.deregister_task_definition(taskDefinition=arn)
+
+        # Also deregister the launch task definitions (prefixed with underbar).
+        task_defs = paginator.paginate(
+            familyPrefix='_' + family
+        )
+        for results in task_defs:
+            for arn in results['taskDefinitionArns']:
+                ecs_cli.deregister_task_definition(taskDefinition=arn)
 
     def handle_update(self, args):
         self.update(args.name, args.image, args.cpu, args.memory)
 
     def update(self, name, image_name, cpu=None, memory=None):
         ctx = self.get_context()
-        img = self.client.get_module('image').image_name_to_uri(image_name)
-        app_task = self.get_app_task(ctx=ctx)
-        if not app_task:
-            self.error('task not found')
-        ctr_def = self.get_container_definition(app_task, name)
-        ctr_def['image'] = img
+        img_uri = self.client.get_module('image').image_name_to_uri(image_name)
+        task = self.get_task(name, ctx=ctx)
+        ctr_def = self.get_container_definition(task, name)
+        ctr_def['image'] = img_uri
         if cpu is not None:
             ctr_def['cpu'] = int(cpu)
         if memory is not None:
             ctr_def['memoryReservation'] = int(memory)
-        self.register_task(app_task)
+        self.register_task(task)
 
     def handle_env_list(self, args):
         self.env_list(args.name)
 
     def env_list(self, name):
-        app_task = self.get_app_task()
-        if not name:
-            name = '_'
-            try:
-                ctr_def = self.get_container_definition(app_task, name)
-            except IndexError:
-                return
-        else:
-            ctr_def = self.get_container_definition(app_task, name)
+        task = self.get_task(name)
+        ctr_def = self.get_container_definition(task, name)
         env = env_to_dict(ctr_def['environment'])
-        for k, v in env.items():
-            print('%s=%s' % (k, v))
+        for k in sorted(env.keys()):
+            print('%s=%s' % (k, env[k]))
 
     def handle_env_set(self, args):
         self.env_set(args.name, values=args.values, file=args.file)
@@ -195,31 +197,13 @@ class Task(Module):
                     v = line[ii + 1:]
                     to_set[k] = v
         to_set.update(values)
-        app_task = self.get_app_task()
-        if not name:
-            name = '_'
-            ecr = self.get_boto_client('ecr')
-            with entity_already_exists():
-                ecr.create_repository(
-                    repositoryName='fuku'
-                )
-            ctr_def = self.get_container_definition(app_task, name, fail=False)
-            if not ctr_def:
-                img = self.client.get_module('image').get_uri('/fuku')
-                ctr_def = {
-                    'name': name,
-                    'image': img,
-                    'environment': [],
-                    'memoryReservation': 1  # required,
-                }
-                app_task['containerDefinitions'].append(ctr_def)
-        else:
-            ctr_def = self.get_container_definition(app_task, name)
+        task = self.get_task(name)
+        ctr_def = self.get_container_definition(task, name)
         env = env_to_dict(ctr_def['environment'])
         env.update(to_set)
         env = dict_to_env(env)
         ctr_def['environment'] = env
-        self.register_task(app_task)
+        self.register_task(task)
 
     def handle_env_unset(self, args):
         self.env_unset(args.name, args.values)
@@ -243,8 +227,8 @@ class Task(Module):
         self.ports_list(args.name)
 
     def ports_list(self, name):
-        app_task = self.get_app_task()
-        ctr_def = self.get_container_definition(app_task, name)
+        task = self.get_task(name)
+        ctr_def = self.get_container_definition(task, name)
         ports = ports_to_dict(ctr_def['portMappings'])
         for k, v in ports.items():
             print('%s:%s' % (k, v))
@@ -253,14 +237,14 @@ class Task(Module):
         self.ports_set(args.name, args.values)
 
     def ports_set(self, name, values):
-        app_task = self.get_app_task()
-        ctr_def = self.get_container_definition(app_task, name)
+        task = self.get_task(name)
+        ctr_def = self.get_container_definition(task, name)
         ports = ports_to_dict(ctr_def['portMappings'])
         for k, v in values.items():
             ports[int(k)] = int(v)
         ports = dict_to_ports(ports)
         ctr_def['portMappings'] = ports
-        self.register_task(app_task)
+        self.register_task(task)
 
     def handle_ports_unset(self, args):
         self.ports_unset(args.name, args.values)
@@ -316,27 +300,68 @@ class Task(Module):
         self.command(args.name, args.command, args.remove)
 
     def command(self, name, cmd, remove=False):
-        app_task = self.get_app_task()
-        ctr_def = self.get_container_definition(app_task, name)
+        task = self.get_task(name)
+        ctr_def = self.get_container_definition(task, name)
         if remove:
             try:
                 del ctr_def['command']
             except KeyError:
                 pass
         else:
-            ctr_def['command'] = [cmd]
-        self.register_task(app_task)
+            ctr_def['command'] = cmd.split()
+        self.register_task(task)
 
-    def get_app_task(self, ctx=None):
+    def handle_prune(self, args):
+        self.prune()
+
+    def prune(self):
+        ecs_cli = self.get_boto_client('ecs')
+        for fam in self.iter_task_families():
+            for prefix in ['', '_']:
+                paginator = ecs_cli.get_paginator('list_task_definitions')
+                response = paginator.paginate(
+                    familyPrefix=prefix + fam,
+                    sort='DESC'
+                )
+                first = True
+                for results in response:
+                    for arn in results['taskDefinitionArns']:
+                        if not first:
+                            ecs_cli.deregister_task_definition(
+                                taskDefinition=arn
+                            )
+                        else:
+                            first = False
+
+    def get_task_family(self, name, ctx=None):
         if ctx is None:
             ctx = self.get_context()
+        return '-'.join(['fuku', ctx['cluster'], ctx['app']] + ([name] if name else []))
+
+    def get_task(self, name, ctx=None, fail=True):
+        family = self.get_task_family(name, ctx)
         ecs = self.get_boto_client('ecs')
         try:
             return ecs.describe_task_definition(
-                taskDefinition=ctx['app']
+                taskDefinition=family
             )['taskDefinition']
         except:
-            pass
+            if fail:
+                self.error(f'no task "{name}"')
+
+    def iter_task_families(self, name=None):
+        ctx = self.get_context()
+        ecs_cli = self.get_boto_client('ecs')
+        paginator = ecs_cli.get_paginator('list_task_definition_families')
+        prefix = f'fuku-{ctx["cluster"]}-{ctx["app"]}'
+        tasks = paginator.paginate(
+            familyPrefix=prefix,
+            status='ACTIVE'
+        )
+        for t in tasks:
+            for f in t['families']:
+                if f != prefix:
+                    yield f
 
     def register_task(self, task):
         ecs = self.get_boto_client('ecs')
@@ -346,11 +371,13 @@ class Task(Module):
         ]))
 
     def get_container_definition(self, task, name, fail=True):
+        if name is None:
+            name = self.get_context()['app']
         try:
             return list(filter(lambda x: x['name'] == name, task['containerDefinitions']))[0]
         except (KeyError, IndexError):
             if fail:
-                self.error(f'task "{name}" does not exist')
+                self.error(f'container definition "{name}" does not exist')
 
     def get_my_context(self):
         return {}

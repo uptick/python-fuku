@@ -2,6 +2,7 @@ import os
 import re
 import json
 import stat
+import random
 
 import boto3
 
@@ -14,7 +15,7 @@ ARN_PROG = re.compile(r'[^/]*/fuku-(.+)')
 
 
 class Cluster(Module):
-    dependencies = ['region']
+    dependencies = ['configuration']
 
     def __init__(self, **kwargs):
         super().__init__('cluster', **kwargs)
@@ -28,6 +29,7 @@ class Cluster(Module):
 
         p = subp.add_parser('mk', help='make a cluster')
         p.add_argument('name', metavar='NAME', help='cluster name')
+        p.add_argument('--type', '-t', choices=['swarm', 'ecs'], default='ecs', help='cluster type')
         p.set_defaults(cluster_handler=self.handle_make)
 
         p = subp.add_parser('sl', help='select a cluster')
@@ -47,18 +49,25 @@ class Cluster(Module):
             print(cl)
 
     def handle_make(self, args):
-        self.make(args.name)
+        self.make(args.name, args.type)
 
-    def make(self, name):
+    def make(self, name, type):
         self.validate(name)
+        vpc = self.create_vpc(name, type)
+        self.create_subnets(name, vpc)
+        self.create_igw(name)
+        nat_id = self.create_nat(name)
+        self.create_route_tables(name, nat_id)
         ecs = self.get_boto_client('ecs')
         res = ecs.create_cluster(
             clusterName=f'fuku-{name}'
         )
         ec2 = self.get_boto_client('ec2')
         self.create_key_pair(name, ec2=ec2)
-        self.create_security_group(name, ec2=ec2)
+        sg_id = self.create_security_group(name, vpc, ec2=ec2)
         self.create_log_group(name)
+        self.create_alb(name, vpc_id, sg_id)
+        self.select(name)
 
     def handle_update(self, args):
         self.update(args.name, args.pem)
@@ -116,7 +125,304 @@ class Cluster(Module):
         s3 = self.get_boto_client('s3')
         s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/key.pem')
 
-    def create_security_group(self, name, ec2=None):
+    def create_vpc(self, name, type):
+        ec2 = self.get_boto_resource('ec2')
+        vpc = self.get_vpc(name, ec2)
+        if not vpc:
+            ec2_cli = self.get_boto_client('ec2')
+            id = ec2_cli.create_vpc(
+                CidrBlock='10.0.0.0/16'
+            )['Vpc']['VpcId']
+            vpc = ec2.Vpc(id)
+            vpc.modify_attribute(EnableDnsSupport={'Value': True})
+            vpc.create_tags(
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': f'fuku-{name}',
+                    },
+                    {
+                        'Key': 'cluster',
+                        'Value': name,
+                    },
+                    {
+                        'Key': 'type',
+                        'Value': type
+                    }
+                ]
+            )
+        return vpc
+
+    def create_subnets(self, name, vpc=None):
+        if not vpc:
+            vpc = self.get_vpc(name)
+        public_subnet_a = vpc.create_subnet(
+            CidrBlock='10.0.4.0/23',
+            AvailabilityZone='ap-southeast-2a'
+        )
+        public_subnet_a.create_tags(
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': f'fuku-{name}-public-a',
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name,
+                }
+            ]
+        )
+        public_subnet_b = vpc.create_subnet(
+            CidrBlock='10.0.6.0/23',
+            AvailabilityZone='ap-southeast-2b'
+        )
+        public_subnet_b.create_tags(
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': f'fuku-{name}-public-b',
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name,
+                }
+            ]
+        )
+        private_subnet_a = vpc.create_subnet(
+            CidrBlock='10.0.0.0/23'
+        )
+        private_subnet_a.create_tags(
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': f'fuku-{name}-private-a',
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name,
+                }
+            ]
+        )
+        private_subnet_b = vpc.create_subnet(
+            CidrBlock='10.0.2.0/23'
+        )
+        private_subnet_b.create_tags(
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': f'fuku-{name}-private-b',
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name,
+                }
+            ]
+        )
+
+    def create_nat(self, name, eip=None):
+        if not eip:
+            eip = self.create_eip()
+        subnet = self.get_public_subnet(name)
+        ec2_cli = self.get_boto_client('ec2')
+        nat_id = ec2_cli.create_nat_gateway(
+            SubnetId=subnet.id,
+            AllocationId=eip
+        )['NatGateway']['NatGatewayId']
+        waiter = ec2_cli.get_waiter('nat_gateway_available')
+        waiter.wait(NatGatewayIds=[nat_id])
+        return nat_id
+
+    def create_igw(self, name):
+        igw = self.get_igw(name)
+        if igw is not None:
+            return igw
+        vpc = self.get_vpc(name)
+        ec2_cli = self.get_boto_client('ec2')
+        id = ec2_cli.create_internet_gateway()['InternetGateway']['InternetGatewayId']
+        ec2 = self.get_boto_resource('ec2')
+        igw = ec2.InternetGateway(id)
+        igw.create_tags(
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': f'fuku-{name}'
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name,
+                }
+            ]
+        )
+        igw.attach_to_vpc(VpcId=vpc.id)
+        return igw
+
+    def create_route_tables(self, name, nat_id):
+        ec2_cli = self.get_boto_client('ec2')
+        ec2 = self.get_boto_resource('ec2')
+        vpc = self.get_vpc(name)
+        igw = self.get_igw(name)
+        id = ec2_cli.create_route_table(VpcId=vpc.id)['RouteTable']['RouteTableId']
+        rt = ec2.RouteTable(id)
+        rt.create_tags(
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': f'fuku-{name}-private'
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name,
+                }
+            ]
+        )
+        ec2_cli.create_route(
+            RouteTableId=rt.id,
+            DestinationCidrBlock='0.0.0.0/0',
+            NatGatewayId=nat_id
+        )
+        for sn in self.iter_private_subnets(name):
+            rt.associate_with_subnet(SubnetId=sn.id)
+        id = ec2_cli.create_route_table(VpcId=vpc.id)['RouteTable']['RouteTableId']
+        rt = ec2.RouteTable(id)
+        rt.create_tags(
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': f'fuku-{name}-public'
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name,
+                }
+            ]
+        )
+        ec2_cli.create_route(
+            RouteTableId=rt.id,
+            DestinationCidrBlock='0.0.0.0/0',
+            NatGatewayId=igw.id
+        )
+        for sn in self.iter_public_subnets(name):
+            rt.associate_with_subnet(SubnetId=sn.id)
+
+    def create_eip(self):
+        ec2_cli = self.get_boto_client('ec2')
+        return ec2_cli.allocate_address(
+            Domain='vpc'
+        )['AllocationId']
+
+    def create_alb(self, name, vpc_id, sg_id):
+        alb_cli = self.get_boto_client('elbv2')
+        alb_name = f'fuku-{name}-0'
+        subnets = [sn.id for sn in self.iter_public_subnets(name)]
+        alb_arn = alb_cli.create_load_balancer(
+            Name=alb_name,
+            Subnets=subnets,
+            SecurityGroups=[
+                sg_id
+            ],
+            Scheme='internet-facing',
+            IpAddressType='ipv4',
+            Tags=[
+                {
+                    'Key': 'Name',
+                    'Value': name
+                },
+                {
+                    'Key': 'cluster',
+                    'Value': name
+                },
+                {
+                    'Key': 'index',
+                    'Value': '0'
+                }
+            ]
+        )['LoadBalancers'][0]['LoadBalancerArn']
+        tg_arn = alb_cli.create_target_group(
+            Name=f'fuku-{name}-default',
+            Protocol='HTTP',
+            Port=80,
+            VpcId=vpc_id,
+            Matcher={
+                'HttpCode': '200,301'
+            }
+        )['TargetGroups'][0]['TargetGroupArn']
+        alb_cli.create_listener(
+            LoadBalancerArn=alb_arn,
+            Protocol='HTTP',
+            Port=80,
+            DefaultActions=[
+                {
+                    'Type': 'forward',
+                    'TargetGroupArn': tg_arn
+                }
+            ]
+        )
+
+    def get_alb_arn(self, name, index=0, alb_cli=None):
+        if alb_cli is None:
+            alb_cli = self.get_boto_client('elbv2')
+        return alb_cli.describe_load_balancers(
+            Names=[f'fuku-{name}-{index}']
+        )['LoadBalancers'][0]['LoadBalancerArn']
+
+    def get_igw(self, name):
+        ec2 = self.get_boto_resource('ec2')
+        igws = ec2.internet_gateways.filter(Filters=[{'Name': 'tag:cluster', 'Values': [name]}])
+        for i in igws:
+            return i
+        return None
+
+    def get_public_subnet(self, name=None, zone=None):
+        if name is None:
+            ctx = self.get_context()
+            name = ctx['cluster']
+        zone = zone if zone else random.choice(['a', 'b'])
+        ec2 = self.get_boto_resource('ec2')
+        subnets = ec2.subnets.filter(Filters=[{'Name': 'tag:Name', 'Values': [f'fuku-{name}-public-{zone}']}])
+        for s in subnets:
+            return s
+        self.error('no private subnets')
+
+    def iter_public_subnets(self, name, ec2=None):
+        ec2 = self.get_boto_resource('ec2')
+        subnets = ec2.subnets.filter(Filters=[{'Name': 'tag:Name', 'Values': [f'fuku-{name}-public-a']}])
+        for s in subnets:
+            yield s
+        subnets = ec2.subnets.filter(Filters=[{'Name': 'tag:Name', 'Values': [f'fuku-{name}-public-b']}])
+        for s in subnets:
+            yield s
+
+    def get_private_subnet(self, name=None, zone=None):
+        if name is None:
+            ctx = self.get_context()
+            name = ctx['cluster']
+        zone = zone if zone else random.choice(['a', 'b'])
+        ec2 = self.get_boto_resource('ec2')
+        subnets = ec2.subnets.filter(Filters=[{'Name': 'tag:Name', 'Values': [f'fuku-{name}-private-{zone}']}])
+        for s in subnets:
+            return s
+        self.error('no private subnets')
+
+    def iter_private_subnets(self, name, ec2=None):
+        ec2 = self.get_boto_resource('ec2')
+        subnets = ec2.subnets.filter(Filters=[{'Name': 'tag:Name', 'Values': [f'fuku-{name}-private-a']}])
+        for s in subnets:
+            yield s
+        subnets = ec2.subnets.filter(Filters=[{'Name': 'tag:Name', 'Values': [f'fuku-{name}-private-b']}])
+        for s in subnets:
+            yield s
+
+    def get_vpc(self, name, ec2=None):
+        if ec2 is None:
+            ec2 = self.get_boto_resource('ec2')
+        vpcs = ec2.vpcs.filter(Filters=[{'Name': 'tag:cluster', 'Values': [name]}])
+        for vpc in vpcs:
+            return vpc
+        return None
+
+    def create_security_group(self, name, vpc=None, ec2=None):
+        if vpc is None:
+            vpc = self.get_vpc(name)
         if ec2 is None:
             ec2 = self.get_boto_client('ec2')
         user_id = self.client.get_module('profile').get_user_id()
@@ -124,15 +430,14 @@ class Cluster(Module):
         with entity_already_exists():
             sg_id = ec2.create_security_group(
                 GroupName=f'fuku-{name}',
-                Description=f'{name} security group'
+                Description=f'{name} security group',
+                VpcId=vpc.id
             )['GroupId']
         if sg_id is None:
-            sg_id = ec2.describe_security_groups(
-                GroupNames=[f'fuku-{name}']
-            )['SecurityGroups'][0]['GroupId']
+            sg_id = self.get_security_group_id(name)
         with entity_already_exists():
             ec2.authorize_security_group_ingress(
-                GroupName=f'fuku-{name}',
+                GroupId=sg_id,
                 IpProtocol='tcp',
                 FromPort=22,
                 ToPort=22,
@@ -140,7 +445,7 @@ class Cluster(Module):
             )
         with entity_already_exists():
             ec2.authorize_security_group_ingress(
-                GroupName=f'fuku-{name}',
+                GroupId=sg_id,
                 IpProtocol='tcp',
                 FromPort=80,
                 ToPort=80,
@@ -148,7 +453,7 @@ class Cluster(Module):
             )
         with entity_already_exists():
             ec2.authorize_security_group_ingress(
-                GroupName=f'fuku-{name}',
+                GroupId=sg_id,
                 IpProtocol='tcp',
                 FromPort=443,
                 ToPort=443,
@@ -156,7 +461,7 @@ class Cluster(Module):
             )
         with entity_already_exists():
             ec2.authorize_security_group_ingress(
-                GroupName=f'fuku-{name}',
+                GroupId=sg_id,
                 IpProtocol='tcp',
                 FromPort=5432,
                 ToPort=5432,
@@ -164,11 +469,9 @@ class Cluster(Module):
             )
         with entity_already_exists():
             ec2.authorize_security_group_ingress(
-                GroupName=f'fuku-{name}',
+                GroupId=sg_id,
                 IpPermissions=[{
-                    'IpProtocol': 'tcp',
-                    'FromPort': 0,
-                    'ToPort': 65535,
+                    'IpProtocol': '-1',
                     'UserIdGroupPairs': [{
                         'UserId': user_id,
                         'GroupId': sg_id
@@ -180,12 +483,14 @@ class Cluster(Module):
     def get_security_group_id(self, name=None):
         name = name or self.store_get('selected')
         ec2 = self.get_boto_client('ec2')
-        try:
-            return ec2.describe_security_groups(
-                GroupNames=[f'fuku-{name}']
-            )['SecurityGroups'][0]['GroupId']
-        except (KeyError, IndexError):
-            self.error(f'security group for "{name}" does not exist')
+        vpc = self.get_vpc(name)
+        all_groups = ec2.describe_security_groups(
+            Filters=[{'Name': 'vpc-id', 'Values': [vpc.id]}]
+        )['SecurityGroups']
+        for sg in all_groups:
+            if sg['GroupName'] == f'fuku-{name}':
+                return sg['GroupId']
+        self.error(f'security group for "{name}" does not exist')
 
     def create_log_group(self, name):
         logs = self.get_boto_client('logs')
