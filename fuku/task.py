@@ -104,7 +104,7 @@ class Task(Module):
     def handle_make(self, args):
         self.make(args.name, args.image, args.cpu, args.memory)
 
-    def make(self, name, image_name, cpu=None, memory=None):
+    def make(self, name, image_name, cpu=None, memory=None, logs=True):
         ctx = self.get_context()
         img_uri = self.client.get_module('image').image_name_to_uri(image_name)
         task = self.get_task(name, ctx=ctx, fail=False)
@@ -118,7 +118,9 @@ class Task(Module):
             'name': name,
             'image': img_uri,
             'memoryReservation': int(memory or 1),
-            'logConfiguration': {
+        }
+        if logs:
+            ctr_def['logConfiguration'] = {
                 'logDriver': 'awslogs',
                 'options': {
                     'awslogs-group': f'/{ctx["cluster"]}',
@@ -126,7 +128,6 @@ class Task(Module):
                     'awslogs-stream-prefix': ctx['app']
                 }
             }
-        }
         if cpu is not None:
             ctr_def['cpu'] = cpu
         task['containerDefinitions'].append(ctr_def)
@@ -265,16 +266,19 @@ class Task(Module):
     def handle_volume_add(self, args):
         self.volume_add(args.name, args.volume, args.destination, args.source)
 
-    def volume_add(self, ctr_name, vol_name, dst, src=None):
-        app_task = self.get_app_task()
-        ctr_def = self.get_container_definition(app_task, ctr_name)
-        volumes = volumes_to_dict(app_task['volumes'])
+    def volume_add(self, task_name, vol_name, dst, src=None, read_only=False):
+        task = self.get_task(task_name)
+        ctr_def = self.get_container_definition(task, task_name)
+        volumes = volumes_to_dict(task['volumes'])
         volumes[vol_name] = src
-        app_task['volumes'] = dict_to_volumes(volumes)
+        task['volumes'] = dict_to_volumes(volumes)
         mounts = mounts_to_dict(ctr_def['mountPoints'])
-        mounts[vol_name] = dst
+        mounts[vol_name] = {
+            'containerPath': dst,
+            'readOnly': read_only
+        }
         ctr_def['mountPoints'] = dict_to_mounts(mounts)
-        self.register_task(app_task)
+        self.register_task(task)
 
     def handle_volume_remove(self, args):
         self.volume_remove(args.name, args.volume)

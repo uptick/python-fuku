@@ -90,14 +90,21 @@ def dict_to_volumes(val):
 def mounts_to_dict(mounts):
     res = {}
     for info in mounts:
-        res[info['sourceVolume']] = info['containerPath']
+        res[info['sourceVolume']] = {
+            'containerPath': info['containerPath'],
+            'readOnly': info['readOnly']
+        }
     return res
 
 
 def dict_to_mounts(val):
     mounts = []
     for k, v in val.items():
-        mounts.append({'sourceVolume': k, 'containerPath': v})
+        mounts.append({
+            'sourceVolume': k,
+            'containerPath': v['containerPath'],
+            'readOnly': v.get('readOnly', False)
+        })
     return mounts
 
 

@@ -21,6 +21,7 @@ from fuku.pg import Pg
 # from fuku.ssl import SSL
 from fuku.redis import Redis, EcsRedis
 from fuku.metrics import Metrics
+from fuku.datadog import Datadog
 
 
 if __name__ == '__main__':
@@ -32,6 +33,7 @@ if __name__ == '__main__':
         EcsApp,
         Image, Task, EcsService,
         EcsRedis, Pg,
-        Metrics
+        Metrics,
+        Datadog
     )
     cli.entry()
