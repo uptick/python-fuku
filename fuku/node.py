@@ -213,7 +213,7 @@ class Node(Module):
         ec2.create_tags(
             Resources=[inst_id],
             Tags=[
-                {'Key': 'Name', 'Value': f'{ctx["cluster"]}-{name}'},
+                {'Key': 'Name', 'Value': f'fuku-{ctx["cluster"]}-{name}'},
                 {'Key': 'name', 'Value': name},
                 {'Key': 'cluster', 'Value': ctx['cluster']},
                 {'Key': 'node', 'Value': 'manager' if manager else 'worker'}
