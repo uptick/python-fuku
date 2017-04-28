@@ -46,6 +46,7 @@ class Profile(Module):
         self.make(args.name)
 
     def make(self, name):
+        self.use_context = False
         if name not in self.list_local_profiles():
             self.error(f'please create a "{name}" profile using AWS CLI then rerun')
         self.create_ec2_role(name)
