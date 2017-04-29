@@ -40,3 +40,16 @@ and database. For convenience it's best to cache the session for easy retrieval:
  `fuku session save <name>`
 
  `fuku session load <name>`
+
+
+To download the current database:
+
+ `fuku pg dump`
+
+To overwrite a database with new content (CAUTION):
+
+ `fuku pg restore <filename>`
+
+To access one of the nodes in the cluster directly:
+
+ `fuku node ssh <name>`
