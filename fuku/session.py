@@ -27,12 +27,16 @@ class Session(Module):
     def handle_save(self, args):
         cache = {}
         for mod in self.client.modules:
+            if mod.name == 'session':
+                continue
             cache[mod.name] = mod.save()
         self.store[args.name] = cache
 
     def handle_load(self, args):
         cache = self.store.get(args.name, {})
         for mod in self.client.modules:
+            if mod.name == 'session':
+                continue
             mod.load(cache.get(mod.name, {}))
 
     def handle_list(self, args):

@@ -84,10 +84,11 @@ class Cluster(Module):
             self.error(f'no cluster "{name}"')
         self.store_set('selected', name)
         self.clear_parent_selections()
-        path = self.get_secure_file(f'{name}/key.pem')
-        self.run(
-            f'ssh-add {path}'
-        )
+        if name:
+            path = self.get_secure_file(f'{name}/key.pem')
+            self.run(
+                f'ssh-add {path}'
+            )
         # path = os.path.join(get_rc_path(), name, 'key.pem')
         # if not os.path.exists(path):
         #     key = self.gets3(f'{name}/key.pem.gpg')

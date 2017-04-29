@@ -55,6 +55,7 @@ class Pg(Module):
         self.list(args.name)
 
     def list(self, name):
+        self.use_context = False
         ctx = self.get_context()
         app = ctx['app']
         rds = self.get_boto_client('rds')
@@ -166,6 +167,7 @@ class Pg(Module):
             name = args.name
             if name:
                 # self.exists(name)
+                self.use_context = False
                 ctx = self.get_context()
                 self.get_secure_file(f'{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass')
                 self.get_pgpass_file(name)
