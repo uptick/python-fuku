@@ -33,11 +33,12 @@ setup(
     package_data={'': ['*.txt', '*.js', '*.html', '*.*']},
     install_requires=[
         'setuptools',
-        'six'
+        'six',
+        'boto3',
+        'fabric3'
     ],
     scripts=[
         'fuku/scripts/fuku',
-        'fuku/scripts/fuku-agent'
     ],
     zip_safe=False,
 )

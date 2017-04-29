@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import stat
 import tempfile
 from contextlib import contextmanager
 from string import Template
@@ -8,6 +9,7 @@ from string import Template
 import boto3
 
 from .runner import run
+from .db import get_rc_path
 
 
 class Module(object):
@@ -185,10 +187,26 @@ class Module(object):
             data = s3.get_object(
                 Bucket=ctx['bucket'],
                 Key=f'fuku/{key}',
-            )['Body'].read().decode()
-            return json.loads(data)
+            )['Body'].read()
+            return data
         except:
             return None
+
+    def get_secure_file(self, path):
+        full_path = os.path.join(get_rc_path(), path)
+        if not os.path.exists(full_path):
+            data = self.gets3(f'{path}.gpg')
+            if data is None:
+                self.error(f'no secure key file found: {key}')
+            try:
+                os.makedirs(os.path.dirname(full_path))
+            except OSError:
+                pass
+            with open(f'{full_path}.gpg', 'wb') as file:
+                file.write(data)
+            self.run(f'gpg -d {full_path}.gpg > {full_path}')
+            os.chmod(full_path, stat.S_IRUSR | stat.S_IWUSR)
+        return full_path
 
     def get_my_context(self):
         return {}

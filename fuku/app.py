@@ -118,6 +118,7 @@ class App(Module):
     def get_my_context(self):
         sel = self.store_get('selected')
         if not sel:
+            import pdb; pdb.set_trace()
             self.error('no app currently selected')
         return {
             'app': sel

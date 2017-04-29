@@ -40,12 +40,12 @@ class Pg(Module):
         p.set_defaults(pg_handler=self.handle_select)
 
         p = subp.add_parser('psql')
-        p.add_argument('name', metavar='NAME', help='DB name')
+        # p.add_argument('name', metavar='NAME', nargs='', help='DB name')
         p.set_defaults(pg_handler=self.handle_psql)
 
-        # p = subp.add_parser('dump')
-        # p.add_argument('output')
-        # p.set_defaults(pg_handler=self.handle_dump)
+        p = subp.add_parser('dump', help='dump contents of database')
+        p.add_argument('output', metavar='OUTPUT', help='output filename')
+        p.set_defaults(pg_handler=self.handle_dump)
 
         p = subp.add_parser('restore', help='restore a database')
         p.add_argument('input', metavar='INPUT', help='database dump file')
@@ -166,6 +166,8 @@ class Pg(Module):
             name = args.name
             if name:
                 # self.exists(name)
+                ctx = self.get_context()
+                self.get_secure_file(f'{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass')
                 self.get_pgpass_file(name)
                 self.store['selected'] = name
             else:
@@ -176,10 +178,11 @@ class Pg(Module):
             self.clear_parent_selections()
 
     def handle_psql(self, args):
-        self.psql(args.name)
+        self.psql()
 
-    def psql(self, name):
+    def psql(self):
         ctx = self.get_context()
+        name = ctx['db']
         path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
         endpoint = self.get_endpoint(name)
         self.run(
@@ -194,6 +197,9 @@ class Pg(Module):
         )
 
     def handle_dump(self, args):
+        self.dump(args.output)
+
+    def dump(self, output):
         ctx = self.get_context()
         app = self.client.get_selected('app')
         name = self.get_selected()
@@ -205,7 +211,7 @@ class Pg(Module):
                 endpoint['Port'],
                 name,
                 name,
-                args.output
+                output
             ),
             capture=False,
             env={'PGPASSFILE': path}
@@ -274,3 +280,11 @@ class Pg(Module):
         if not sel and fail:
             self.error('no postgres DB selected')
         return sel
+
+    def get_my_context(self):
+        sel = self.store_get('selected')
+        if not sel:
+            self.error('no DB currently selected')
+        return {
+            'db': sel
+        }

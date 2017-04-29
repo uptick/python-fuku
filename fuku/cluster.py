@@ -15,7 +15,7 @@ ARN_PROG = re.compile(r'[^/]*/fuku-(.+)')
 
 
 class Cluster(Module):
-    dependencies = ['configuration']
+    dependencies = ['region']
 
     def __init__(self, **kwargs):
         super().__init__('cluster', **kwargs)
@@ -84,6 +84,23 @@ class Cluster(Module):
             self.error(f'no cluster "{name}"')
         self.store_set('selected', name)
         self.clear_parent_selections()
+        path = self.get_secure_file(f'{name}/key.pem')
+        self.run(
+            f'ssh-add {path}'
+        )
+        # path = os.path.join(get_rc_path(), name, 'key.pem')
+        # if not os.path.exists(path):
+        #     key = self.gets3(f'{name}/key.pem.gpg')
+        #     if key is None:
+        #         self.error(f'no key file found for cluster')
+        #     try:
+        #         os.makedirs(os.path.dirname(path))
+        #     except OSError:
+        #         pass
+        #     with open(f'{path}.gpg', 'wb') as file:
+        #         file.write(key)
+        #     self.run(f'gpg -d {path}.gpg > {path}')
+        #     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
     def iter_clusters(self):
         ecs = self.get_boto_client('ecs')
@@ -123,7 +140,7 @@ class Cluster(Module):
             'gpg -c {}'.format(path)
         )
         s3 = self.get_boto_client('s3')
-        s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/key.pem')
+        s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/key.pem.gpg')
 
     def create_vpc(self, name, type):
         ec2 = self.get_boto_resource('ec2')

@@ -19,13 +19,17 @@ class Profile(Module):
         p.add_argument('name', metavar='NAME', nargs='?', help='profile name')
         p.set_defaults(profile_handler=self.handle_list)
 
-        p = subp.add_parser('mk', help='make a new profile')
-        p.add_argument('name', metavar='NAME', help='profile name')
-        p.set_defaults(profile_handler=self.handle_make)
+        # p = subp.add_parser('mk', help='make a new profile')
+        # p.add_argument('name', metavar='NAME', help='profile name')
+        # p.set_defaults(profile_handler=self.handle_make)
 
         # p = subp.add_parser('rm', help='remove a profile')
         # p.add_argument('name', metavar='NAME', help='profile name')
         # p.set_defaults(profile_handler=self.handle_remove)
+
+        p = subp.add_parser('bucket', help='set FUKU bucket')
+        p.add_argument('name', metavar='NAME', help='bucket name')
+        p.set_defaults(profile_handler=self.handle_bucket)
 
         p = subp.add_parser('sl', help='select a profile')
         p.add_argument('name', metavar='NAME', help='profile name')
@@ -67,6 +71,18 @@ class Profile(Module):
         sel = self.store_get('selected')
         if sel:
             print(sel)
+
+    def handle_bucket(self, args):
+        self.bucket(args.name)
+
+    def bucket(self, name):
+        s3 = self.get_boto_resource('s3', {'profile': self.get_selected()})
+        bucket = s3.Bucket(name)
+        try:
+            bucket.load()
+        except:
+            bucket.create()
+        self.store_set('bucket', name)
 
     def list_local_profiles(self):
         cfg = ConfigParser()
@@ -144,6 +160,9 @@ class Profile(Module):
         sel = self.get_selected()
         if sel:
             ctx['profile'] = sel
+        if 'bucket' not in self.store:
+            self.error('bucket not set')
+        ctx['bucket'] = self.store['bucket']
         return ctx
 
     def get_selected(self):
