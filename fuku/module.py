@@ -197,7 +197,7 @@ class Module(object):
         if not os.path.exists(full_path):
             data = self.gets3(f'{path}.gpg')
             if data is None:
-                self.error(f'no secure key file found: {key}')
+                self.error(f'no secure key file found: {path}')
             try:
                 os.makedirs(os.path.dirname(full_path))
             except OSError:

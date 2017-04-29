@@ -33,7 +33,7 @@ class Cluster(Module):
         p.set_defaults(cluster_handler=self.handle_make)
 
         p = subp.add_parser('sl', help='select a cluster')
-        p.add_argument('name', metavar='NAME', help='cluster name')
+        p.add_argument('name', metavar='NAME', nargs='?', help='cluster name')
         p.set_defaults(cluster_handler=self.handle_select)
 
         p = subp.add_parser('up', help='update a cluster')
@@ -80,15 +80,20 @@ class Cluster(Module):
         self.select(args.name)
 
     def select(self, name):
+        self.use_context = False
         if name and name not in list(self.iter_clusters()):
             self.error(f'no cluster "{name}"')
-        self.store_set('selected', name)
-        self.clear_parent_selections()
         if name:
             path = self.get_secure_file(f'{name}/key.pem')
             self.run(
                 f'ssh-add {path}'
             )
+        else:
+            sel = self.store_get('selected')
+            if sel:
+                self.clear_secure_file(f'{sel}/key.pem')
+        self.store_set('selected', name)
+        self.clear_parent_selections()
         # path = os.path.join(get_rc_path(), name, 'key.pem')
         # if not os.path.exists(path):
         #     key = self.gets3(f'{name}/key.pem.gpg')
