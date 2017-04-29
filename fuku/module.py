@@ -204,9 +204,20 @@ class Module(object):
                 pass
             with open(f'{full_path}.gpg', 'wb') as file:
                 file.write(data)
-            self.run(f'gpg -d {full_path}.gpg > {full_path}')
+            try:
+                self.run(f'gpg -d {full_path}.gpg > {full_path}')
+            except:
+                self.clear_secure_file(path)
+                raise
             os.chmod(full_path, stat.S_IRUSR | stat.S_IWUSR)
         return full_path
+
+    def clear_secure_file(self, path):
+        full_path = os.path.join(get_rc_path(), path)
+        try:
+            os.remove(full_path)
+        except:
+            pass
 
     def get_my_context(self):
         return {}

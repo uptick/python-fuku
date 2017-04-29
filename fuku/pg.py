@@ -166,13 +166,20 @@ class Pg(Module):
         else:
             name = args.name
             if name:
-                # self.exists(name)
                 self.use_context = False
                 ctx = self.get_context()
-                self.get_secure_file(f'{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass')
+                pgpass_path = f'{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass'
+                # self.exists(name)
+                self.get_secure_file(pgpass_path)
                 self.get_pgpass_file(name)
                 self.store['selected'] = name
             else:
+                sel = self.store.get('selected', None)
+                if sel:
+                    self.use_context = False
+                    ctx = self.get_context()
+                    pgpass_path = f'{ctx["cluster"]}/{ctx["app"]}/{sel}.pgpass'
+                    self.clear_secure_file(pgpass_path)
                 try:
                     del self.store['selected']
                 except KeyError:

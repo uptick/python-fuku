@@ -66,14 +66,14 @@ TODO
 At this point you have configured your session for a particular cluster, application,
 and database. For convenience it's best to cache the session for easy retrieval:
 
- `fuku session save <name>`
+ `fuku session sv <name>`
 
- `fuku session load <name>`
+ `fuku session ld <name>`
 
 
 To download the current database:
 
- `fuku pg dump`
+ `fuku pg dump <dumpfile>`
 
 To overwrite a database with new content (CAUTION):
 
