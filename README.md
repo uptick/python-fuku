@@ -1,7 +1,8 @@
 # fuku
 
 Fuku is a (young) system to help manage web application infrastructure
-using AWS.
+using AWS. It's aim is to replicate some of the simplicity of Heroku without
+the cost.
 
 
 ## Requirements:
@@ -28,9 +29,21 @@ pip install fuku
 ```
 
 
-## Quickstart
+## Quickstart for new configurations
 
-TODO
+ 1. Configure your AWS credentials as usual (aws configure).
+
+ 2. `fuku profile ls` to see available profiles.
+
+    `fuku profile mk <name>` to make the AWS groups etc required.
+
+ 3. `fuku profile bucket <bucket>` to set a workspace for Fuku.
+
+ 4. `fuku region ls` to see available regions.
+
+    `fuku region sl <region>` to select a region.
+
+ 5. `fuku cluster mk <name>` to create a cluster.
 
 
 ## Quickstart for existing configurations
@@ -71,7 +84,7 @@ and database. For convenience it's best to cache the session for easy retrieval:
  `fuku session ld <name>`
 
 
-## Downloading Current DB
+## Downloading current DB
 
 To download the current database:
 
@@ -92,7 +105,7 @@ To access one of the nodes in the cluster directly:
  `fuku node ssh <name>`
 
 
-## Run an Arbitrary Command
+## Run an arbitrary command
 
 To run a command:
 
