@@ -315,8 +315,11 @@ class Node(Module):
         ip = bastion.public_ip_address
         priv_ip = inst.private_ip_address
         # full_cmd = f'ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -i "{ctx["pem"]}" root@{ip} {cmd}'
-        full_cmd = f'ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -A ec2-user@{ip} ssh{" -t" if tty else ""} {priv_ip} {cmd}'
-        return self.run(full_cmd, capture=capture)
+        with self.temporary_file() as tf:
+            tf.write(cmd.encode())
+            tf.flush()
+            full_cmd = f'ssh-add {ctx["pem"]} && ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -A ec2-user@{ip} ssh{" -t" if tty else ""} {priv_ip} "\`echo `base64 -w 0 {tf.name}` | base64 -di\`"'
+            return self.run(full_cmd, capture=capture)
 
     def handle_bastion(self, args):
         self.bastion()

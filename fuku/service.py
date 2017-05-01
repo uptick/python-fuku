@@ -36,6 +36,11 @@ class Service(Module):
         p.add_argument('task', metavar='TASK', help='task name')
         p.set_defaults(service_handler=self.handle_remove)
 
+        p = subp.add_parser('run', help='run a command')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('command', metavar='COMMAND', help='command to run')
+        p.set_defaults(service_handler=self.handle_run)
+
         # p = subp.add_parser('remove')
         # p.add_argument('task')
         # p.add_argument('--volumes', '-v', action='store_true', help='remove volumes')
@@ -188,6 +193,41 @@ class Service(Module):
     #         task = task_mod.get_task(task_mod.get_task_name())
     #         self.delete_volumes(volumes_to_dict(task.get('volumes', [])))
 
+    def handle_run(self, args):
+        self.run(args.task, args.command)
+
+    def run(self, task_name, command):
+        task_mod = self.get_module('task')
+        ecs_cli = self.get_boto_client('ecs')
+        ec2 = self.get_boto_resource('ec2')
+        ctx = self.get_context()
+        family = '_' + task_mod.get_task_family(task_name)
+        cluster = f'fuku-{ctx["cluster"]}'
+        task_arns = ecs_cli.list_tasks(
+            cluster=cluster,
+            family=family,
+            desiredStatus='RUNNING'
+        )['taskArns']
+        if not task_arns:
+            self.error('no running tasks for that service')
+        # task_id = task_arns[0][task_arns[0].rfind('/') + 1:]
+        cinst_arn = ecs_cli.describe_tasks(
+            cluster=cluster,
+            tasks=[
+                task_arns[0]
+            ]
+        )['tasks'][0]['containerInstanceArn']
+        inst_id = ecs_cli.describe_container_instances(
+            cluster=cluster,
+            containerInstances=[
+                cinst_arn
+            ]
+        )['containerInstances'][0]['ec2InstanceId']
+        inst = ec2.Instance(inst_id)
+        cmd = f'docker exec -it `docker ps | grep {family} | awk \'{{ print $1 }}\'` {command}'
+        node_mod = self.get_module('node')
+        node_mod.ssh_run(cmd, inst=inst, tty=True)
+
     def handle_logs(self, args):
         mach_mod = self.client.get_module('machine')
         mach = mach_mod.get_selected()
@@ -286,6 +326,11 @@ class EcsService(Service):
         p = subp.add_parser('rm', help='remove a service')
         p.add_argument('task', metavar='TASK', help='task name')
         p.set_defaults(service_handler=self.handle_remove)
+
+        p = subp.add_parser('run', help='run a command')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('command', metavar='COMMAND', help='command to run')
+        p.set_defaults(service_handler=self.handle_run)
 
     def list(self, task_name):
         for svc in self.iter_services(task_name):

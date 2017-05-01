@@ -71,14 +71,32 @@ and database. For convenience it's best to cache the session for easy retrieval:
  `fuku session ld <name>`
 
 
+## Downloading Current DB
+
 To download the current database:
 
  `fuku pg dump <dumpfile>`
+
+
+## Upload DB
 
 To overwrite a database with new content (CAUTION):
 
  `fuku pg restore <filename>`
 
+
+## SSH into a node
+
 To access one of the nodes in the cluster directly:
 
  `fuku node ssh <name>`
+
+
+## Run an Arbitrary Command
+
+To run a command:
+
+ `fuku service run <task> <command>`
+
+This attaches to a running container from the specified task, then
+runs the provided command.

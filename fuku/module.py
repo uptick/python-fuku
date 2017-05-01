@@ -78,6 +78,14 @@ class Module(object):
         # yield outf.name
         yield data
 
+    @contextmanager
+    def temporary_file(self):
+        tf = tempfile.NamedTemporaryFile()
+        try:
+            yield tf
+        finally:
+            tf.close()
+
     def run(self, cmd, cfg={}, capture='discard', use_self=False, ignore_errors=False,
             env={}):
         # cfg = self.merged_config(cfg, use_self)
