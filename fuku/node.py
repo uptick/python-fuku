@@ -317,7 +317,7 @@ class Node(Module):
         ip = bastion.public_ip_address
         priv_ip = inst.private_ip_address
         b64cmd = base64.b64encode(cmd.encode()).decode()
-        full_cmd = f'ssh-add {ctx["pem"]} && ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -A ec2-user@{ip} ssh{" -t" if tty else ""} -o \\\"StrictHostKeyChecking no\\\" {priv_ip} "\`echo {b64cmd} | base64 -di\`"'
+        full_cmd = f'ssh-add {ctx["pem"]} 2> /dev/null && ssh{" -t" if tty else ""} -o StrictHostKeyChecking=no -o LogLevel=QUIET  -A ec2-user@{ip} ssh{" -t" if tty else ""} -o StrictHostKeyChecking=no -o LogLevel=QUIET {priv_ip} "\`echo {b64cmd} | base64 -di\`"'
         return self.run(full_cmd, capture=capture)
 
     def handle_bastion(self, args):
