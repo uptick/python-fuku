@@ -117,14 +117,14 @@ class Task(Module):
         ctr_def = {
             'name': name,
             'image': img_uri,
-            'memoryReservation': int(memory or 1),
+            'memoryReservation': int(memory or 4),
         }
         if logs:
             ctr_def['logConfiguration'] = {
                 'logDriver': 'awslogs',
                 'options': {
                     'awslogs-group': f'/{ctx["cluster"]}',
-                    'awslogs-regions': ctx['region'],
+                    'awslogs-region': ctx['region'],
                     'awslogs-stream-prefix': ctx['app']
                 }
             }
@@ -137,25 +137,26 @@ class Task(Module):
         self.remove(args.name)
 
     def remove(self, name):
+        self.confirm_remove(name)
 
-        # Deregister the task definitions.
-        ecs_cli = self.get_boto_client('ecs')
-        paginator = ecs_cli.get_paginator('list_task_definitions')
-        family = self.get_task_family(name)
-        task_defs = paginator.paginate(
-            familyPrefix=family
-        )
-        for results in task_defs:
-            for arn in results['taskDefinitionArns']:
-                ecs_cli.deregister_task_definition(taskDefinition=arn)
+        # # Deregister the task definitions.
+        # ecs_cli = self.get_boto_client('ecs')
+        # paginator = ecs_cli.get_paginator('list_task_definitions')
+        # family = self.get_task_family(name)
+        # task_defs = paginator.paginate(
+        #     familyPrefix=family
+        # )
+        # for results in task_defs:
+        #     for arn in results['taskDefinitionArns']:
+        #         ecs_cli.deregister_task_definition(taskDefinition=arn)
 
-        # Also deregister the launch task definitions (prefixed with underbar).
-        task_defs = paginator.paginate(
-            familyPrefix='_' + family
-        )
-        for results in task_defs:
-            for arn in results['taskDefinitionArns']:
-                ecs_cli.deregister_task_definition(taskDefinition=arn)
+        # # Also deregister the launch task definitions (prefixed with underbar).
+        # task_defs = paginator.paginate(
+        #     familyPrefix='_' + family
+        # )
+        # for results in task_defs:
+        #     for arn in results['taskDefinitionArns']:
+        #         ecs_cli.deregister_task_definition(taskDefinition=arn)
 
     def handle_update(self, args):
         self.update(args.name, args.image, args.cpu, args.memory)
@@ -210,10 +211,8 @@ class Task(Module):
         self.env_unset(args.name, args.values)
 
     def env_unset(self, name, keys):
-        app_task = self.get_app_task()
-        if not name:
-            name = '_'
-        ctr_def = self.get_container_definition(app_task, name)
+        task = self.get_task(name)
+        ctr_def = self.get_container_definition(task, name)
         env = env_to_dict(ctr_def['environment'])
         for k in keys:
             try:
@@ -222,7 +221,7 @@ class Task(Module):
                 pass
         env = dict_to_env(env)
         ctr_def['environment'] = env
-        self.register_task(app_task)
+        self.register_task(task)
 
     def handle_ports_list(self, args):
         self.ports_list(args.name)

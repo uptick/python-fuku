@@ -179,9 +179,10 @@ class Cluster(Module):
     def create_subnets(self, name, vpc=None):
         if not vpc:
             vpc = self.get_vpc(name)
+        region_mod = self.get_module('region')
         public_subnet_a = vpc.create_subnet(
             CidrBlock='10.0.4.0/23',
-            AvailabilityZone='ap-southeast-2a'
+            AvailabilityZone=region_mod.get_availability_zone('a')
         )
         public_subnet_a.create_tags(
             Tags=[
@@ -197,7 +198,7 @@ class Cluster(Module):
         )
         public_subnet_b = vpc.create_subnet(
             CidrBlock='10.0.6.0/23',
-            AvailabilityZone='ap-southeast-2b'
+            AvailabilityZone=region_mod.get_availability_zone('b')
         )
         public_subnet_b.create_tags(
             Tags=[
@@ -212,7 +213,8 @@ class Cluster(Module):
             ]
         )
         private_subnet_a = vpc.create_subnet(
-            CidrBlock='10.0.0.0/23'
+            CidrBlock='10.0.0.0/23',
+            AvailabilityZone=region_mod.get_availability_zone('a')
         )
         private_subnet_a.create_tags(
             Tags=[
@@ -227,7 +229,8 @@ class Cluster(Module):
             ]
         )
         private_subnet_b = vpc.create_subnet(
-            CidrBlock='10.0.2.0/23'
+            CidrBlock='10.0.2.0/23',
+            AvailabilityZone=region_mod.get_availability_zone('b')
         )
         private_subnet_b.create_tags(
             Tags=[
@@ -388,6 +391,18 @@ class Cluster(Module):
             Names=[f'fuku-{name}-{index}']
         )['LoadBalancers'][0]['LoadBalancerArn']
 
+    def iter_listeners(self, name=None, index=0, alb_cli=None):
+        if not name:
+            name = self.get_context()['cluster']
+        if alb_cli is None:
+            alb_cli = self.get_boto_client('elbv2')
+        alb_arn = self.get_alb_arn(name)
+        listeners = alb_cli.describe_listeners(
+            LoadBalancerArn=alb_arn,
+        )['Listeners']
+        for lsnr in listeners:
+            yield lsnr
+
     def get_igw(self, name):
         ec2 = self.get_boto_resource('ec2')
         igws = ec2.internet_gateways.filter(Filters=[{'Name': 'tag:cluster', 'Values': [name]}])
@@ -435,7 +450,9 @@ class Cluster(Module):
         for s in subnets:
             yield s
 
-    def get_vpc(self, name, ec2=None):
+    def get_vpc(self, name=None, ec2=None):
+        if name is None:
+            name = self.get_context()['cluser']
         if ec2 is None:
             ec2 = self.get_boto_resource('ec2')
         vpcs = ec2.vpcs.filter(Filters=[{'Name': 'tag:cluster', 'Values': [name]}])

@@ -25,6 +25,7 @@ class Node(Module):
         p = subp.add_parser('mk', help='make a node')
         p.add_argument('name', metavar='NAME', help='node name')
         p.add_argument('--manager', '-m', action='store_true', help='manager node (Swarm)')
+        p.add_argument('--availability-zone', '-a', choices=['a', 'b'], help='availability zone')
         p.set_defaults(node_handler=self.handle_make)
 
         p = subp.add_parser('rm', help='remove a node')
@@ -315,12 +316,8 @@ class Node(Module):
         bastion = self.get_bastion()
         ip = bastion.public_ip_address
         priv_ip = inst.private_ip_address
-        # full_cmd = f'ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -i "{ctx["pem"]}" root@{ip} {cmd}'
-        # with self.temporary_file() as tf:
-        #     tf.write(cmd.encode())
-        #     tf.flush()
         b64cmd = base64.b64encode(cmd.encode()).decode()
-        full_cmd = f'ssh-add {ctx["pem"]} && ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -A ec2-user@{ip} ssh{" -t" if tty else ""} {priv_ip} "\`echo {b64cmd} | base64 -di\`"'
+        full_cmd = f'ssh-add {ctx["pem"]} && ssh{" -t" if tty else ""} -o "StrictHostKeyChecking no" -A ec2-user@{ip} ssh{" -t" if tty else ""} -o \\\"StrictHostKeyChecking no\\\" {priv_ip} "\`echo {b64cmd} | base64 -di\`"'
         return self.run(full_cmd, capture=capture)
 
     def handle_bastion(self, args):
@@ -399,6 +396,7 @@ class EcsNode(Node):
 
         p = subp.add_parser('mk', help='make a node')
         p.add_argument('name', metavar='NAME', help='node name')
+        p.add_argument('--availability-zone', '-a', choices=['a', 'b'], help='availability zone')
         p.set_defaults(node_handler=self.handle_make)
 
         p = subp.add_parser('rm', help='remove a node')
@@ -421,9 +419,9 @@ class EcsNode(Node):
         p.set_defaults(node_handler=self.handle_reboot)
 
     def handle_make(self, args):
-        self.make(args.name)
+        self.make(args.name, args.availability_zone)
 
-    def make(self, name):
+    def make(self, name, zone):
         self.validate(name)
         existing = self.get_instance_names()
         if name in existing:
@@ -432,7 +430,7 @@ class EcsNode(Node):
         ec2 = self.get_boto_client('ec2')
         image = self.ami_map[ctx['region']]
         sg_id = self.get_module('cluster').get_security_group_id()
-        sn = self.get_module('cluster').get_private_subnet()
+        sn = self.get_module('cluster').get_private_subnet(zone=zone)
         opts = {
             'ImageId': image,
             'SubnetId': sn.id,

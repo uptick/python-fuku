@@ -111,6 +111,27 @@ class Module(object):
             except AttributeError:
                 pass
 
+    def confirm_remove(self, id):
+        """ I want to remove something, confirm with parents that this
+        is okay.
+        """
+        results = []
+        for parent in self.client.iter_parent_modules(self.name):
+            results.extend(parent.dependency_removal(self, id))
+        if len(results):
+            print('Unable to remove as there are dependencies:\n')
+            for res in results:
+                mod = res['module'].name
+                id = res['id']
+                print(f'  module "{mod}", identifier "{id}"')
+            print('')
+
+    def dependency_removal(self, module, id):
+        """ Something higher up in the tree is going to be removed, check what that
+        means for lower modules.
+        """
+        return []
+
     def check(self, key):
         if key in self._checks:
             return self._checks[key]()
@@ -200,6 +221,17 @@ class Module(object):
         except:
             return None
 
+    def encrypt_file(self, path, purpose='an unknown resource'):
+        print(f'\nPlease enter a password to secure {purpose}.')
+        print('Be sure to keep this safe, as it is required for future')
+        print('access to this resource.\n')
+        while 1:
+            try:
+                self.run('gpg -c {}'.format(path))
+                break
+            except:
+                print('\ntimed out, please try again\n')
+
     def get_secure_file(self, path):
         full_path = os.path.join(get_rc_path(), path)
         if not os.path.exists(full_path):
@@ -229,3 +261,6 @@ class Module(object):
 
     def get_my_context(self):
         return {}
+
+    def escape(self, value):
+        return value.replace('"', '\\"')

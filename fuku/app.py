@@ -35,6 +35,11 @@ class App(Module):
         p.add_argument('command', metavar='CMD', nargs='+', help='command to run')
         p.set_defaults(app_handler=self.handle_run)
 
+        p = subp.add_parser('expose', help='expose to internet')
+        p.add_argument('domain', metavar='DOMAIN', help='domain name')
+        p.set_defaults(app_handler=self.handle_expose)
+
+
     def handle_list(self, args):
         self.list()
 
@@ -69,6 +74,35 @@ class App(Module):
         full_cmd = f'docker run --rm -it {img} {cmd}'
         node_mod = self.client.get_module('node')
         node_mod.mgr_run(full_cmd, tty=True)
+
+    def handle_expose(self, args):
+        self.expose(args.domain)
+
+    def expose(self, domain):
+        cluster_mod = self.get_module('cluster')
+        alb_cli = self.get_boto_client('elbv2')
+        tg_arn = self.get_target_group_arn()
+        for listener in cluster_mod.iter_listeners():
+            rules = alb_cli.describe_rules(
+                ListenerArn=listener['ListenerArn']
+            )['Rules']
+            priority = max(int(r['Priority']) for r in rules if r['Priority'] != 'default') + 1
+            alb_cli.create_rule(
+                ListenerArn=listener['ListenerArn'],
+                Conditions=[
+                    {
+                        'Field': 'host-header',
+                        'Values': [domain]
+                    }
+                ],
+                Priority=priority,
+                Actions=[
+                    {
+                        'Type': 'forward',
+                        'TargetGroupArn': tg_arn
+                    }
+                ]
+            )
 
     def iter_groups(self):
         iam = self.get_boto_resource('iam')
@@ -137,7 +171,10 @@ class EcsApp(App):
             Name=f'fuku-{ctx["cluster"]}-{name}',
             Protocol='HTTP',
             Port=80,
-            VpcId=vpc_id
+            VpcId=vpc_id,
+            Matcher={
+                'HttpCode': '200,301'
+            }
         )['TargetGroups'][0]['TargetGroupArn']
 
     def get_target_group_arn(self):

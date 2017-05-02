@@ -41,6 +41,7 @@ class Pg(Module):
 
         p = subp.add_parser('psql')
         # p.add_argument('name', metavar='NAME', nargs='', help='DB name')
+        p.add_argument('--command', '-c',  help='run SQL')
         p.set_defaults(pg_handler=self.handle_psql)
 
         p = subp.add_parser('dump', help='dump contents of database')
@@ -79,6 +80,7 @@ class Pg(Module):
         self.make(args.name, args.backup)
 
     def make(self, name, backup):
+        self.use_context = False
         ctx = self.get_context()
         app = ctx['app']
         password = gen_secret(16)
@@ -118,6 +120,7 @@ class Pg(Module):
             DBInstanceIdentifier=inst_id
         )
         self.cache(name, password)
+        self.select(name)
 
     def handle_cache(self, args):
         self.cache(args.name, args.password)
@@ -139,9 +142,7 @@ class Pg(Module):
                 password
             ))
         os.chmod(path, 0o600)
-        self.run(
-            'gpg -c {}'.format(path)
-        )
+        self.encrypt_file(path, purpose='the database credentials')
         s3 = self.get_boto_client('s3')
         s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass.gpg')
 
@@ -149,6 +150,7 @@ class Pg(Module):
         self.connect(args.name, args.target)
 
     def connect(self, db_name, task_name):
+        self.use_context = False
         task_mod = self.client.get_module('task')
         env = {
             'DATABASE_URL': self.get_url(db_name)
@@ -156,15 +158,14 @@ class Pg(Module):
         task_mod.env_set(task_name, env)
 
     def handle_select(self, args):
-        self.select(args)
+        self.select(args.name, args.show)
 
-    def select(self, args):
-        if args.show:
+    def select(self, name, show=False):
+        if show:
             sel = self.get_selected(fail=False)
             if sel:
                 print(sel)
         else:
-            name = args.name
             if name:
                 self.use_context = False
                 ctx = self.get_context()
@@ -187,20 +188,23 @@ class Pg(Module):
             self.clear_parent_selections()
 
     def handle_psql(self, args):
-        self.psql()
+        self.psql(args.command)
 
-    def psql(self):
+    def psql(self, command=None):
         ctx = self.get_context()
         name = ctx['db']
         path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
         endpoint = self.get_endpoint(name)
+        cmd = 'psql -h {} -p {} -U {} -d {}'.format(
+            endpoint['Address'],
+            endpoint['Port'],
+            name,
+            name
+        )
+        if command:
+            cmd = f'{cmd} -c "{self.escape(command)}"'
         self.run(
-            'psql -h {} -p {} -U {} -d {}'.format(
-                endpoint['Address'],
-                endpoint['Port'],
-                name,
-                name
-            ),
+            cmd,
             capture=False,
             env={'PGPASSFILE': path}
         )

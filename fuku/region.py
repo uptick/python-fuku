@@ -38,6 +38,9 @@ class Region(Module):
         self.store_set('selected', name)
         self.clear_parent_selections()
 
+    def get_availability_zone(self, zone):
+        return f'{self.get_selected()}{zone}'
+
     def get_my_context(self):
         ctx = {}
         sel = self.get_selected()

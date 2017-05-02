@@ -29,6 +29,11 @@ class Service(Module):
         p.add_argument('--replicas', '-r', help='number of replicas')
         p.set_defaults(service_handler=self.handle_update)
 
+        p = subp.add_parser('scale', help='scale a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('replicas', metavar='REPLICAS', help='number of replicas')
+        p.set_defaults(service_handler=self.handle_scale)
+
         p = subp.add_parser('redeploy', help='redeploy all')
         p.set_defaults(service_handler=self.handle_redeploy)
 
@@ -181,7 +186,7 @@ class Service(Module):
         self.remove(args.task)
 
     # def handle_remove(self, args):
-    #     mach_mod = self.client.get_module('machine')
+    #     mach_mod = self.get_module('node')
     #     mach = mach_mod.get_selected()
     #     mach_mod.ssh_run(
     #         'docker service rm {}'.format(args.task),
@@ -300,6 +305,17 @@ class Service(Module):
         ctx = self.get_context()
         return f'{ctx["app"]}-{task_name}'
 
+    def dependency_removal(self, module, id):
+        if module.name == 'task':
+            if self.is_running(id):
+                return [
+                    {
+                        'module': self,
+                        'id': id
+                    }
+                ]
+        return []
+
 
 class EcsService(Service):
     def add_arguments(self, parser):
@@ -319,6 +335,11 @@ class EcsService(Service):
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
         p.set_defaults(service_handler=self.handle_update)
+
+        p = subp.add_parser('scale', help='scale a service')
+        p.add_argument('task', metavar='TASK', help='task name')
+        p.add_argument('replicas', metavar='REPLICAS', help='number of replicas')
+        p.set_defaults(service_handler=self.handle_scale)
 
         p = subp.add_parser('redeploy', help='redeploy all')
         p.set_defaults(service_handler=self.handle_redeploy)
@@ -359,7 +380,7 @@ class EcsService(Service):
         # TODO: Deregister previous task definitions.
         kwargs = {
             'cluster': cluster,
-            'serviceName': f'fuku-{ctx["cluster"]}-{task_name}',
+            'serviceName': f'fuku-{ctx["app"]}-{task_name}',
             'taskDefinition': f'{task["family"]}:{task["revision"]}',
             'desiredCount': int(replicas) if replicas is not None else 1,
             'deploymentConfiguration': {
@@ -402,12 +423,15 @@ class EcsService(Service):
         # TODO: Deregister previous task definitions.
         kwargs = {
             'cluster': cluster,
-            'service': f'fuku-{ctx["cluster"]}-{task_name}',
+            'service': f'fuku-{ctx["app"]}-{task_name}',
             'taskDefinition': f'{task["family"]}:{task["revision"]}',
         }
         if replicas:
             kwargs['desiredCount'] = int(replicas) if replicas is not None else 1
         ecs_cli.update_service(**kwargs)
+
+    def handle_scale(self, args):
+        self.scale(args.task, args.replicas)
 
     def scale(self, task_name, replicas=None):
         ctx = self.get_context()
@@ -419,17 +443,18 @@ class EcsService(Service):
         )['taskDefinition']
         ecs_cli.update_service(
             cluster=cluster,
-            service=f'fuku-{ctx["cluster"]}-{task_name}',
+            service=f'fuku-{ctx["app"]}-{task_name}',
             taskDefinition=f'{family}:{task["revision"]}',
             desiredCount=int(replicas) if replicas is not None else 1
         )
 
     def remove(self, task_name):
+        self.confirm_remove(task_name)
         self.scale(task_name, 0)
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         ecs_cli = self.get_boto_client('ecs')
-        svc = f'fuku-{ctx["cluster"]}-{task_name}'
+        svc = f'fuku-{ctx["app"]}-{task_name}'
         # waiter = ecs_cli.get_waiter('services_inactive')
         # waiter.wait(
         #     cluster=cluster,
@@ -450,3 +475,17 @@ class EcsService(Service):
             for s in svcs['serviceArns']:
                 ii = s.rfind('-')
                 yield s[ii + 1:]
+
+    def is_running(self, task_name):
+        ecs_cli = self.get_boto_client('ecs')
+        ctx = self.get_context()
+        results = ecs_cli.describe_services(
+            cluster=f'fuku-{ctx["cluster"]}',
+            services=[
+                f'fuku-{ctx["app"]}-{task_name}'
+            ]
+        )
+        try:
+            return len(results['services']) > 0
+        except KeyError:
+            return False
