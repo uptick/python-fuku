@@ -43,7 +43,7 @@ class Service(Module):
 
         p = subp.add_parser('run', help='run a command')
         p.add_argument('task', metavar='TASK', help='task name')
-        p.add_argument('command', metavar='COMMAND', help='command to run')
+        p.add_argument('command', metavar='COMMAND', nargs='+', help='command to run')
         p.set_defaults(service_handler=self.handle_run)
 
         # p = subp.add_parser('remove')
@@ -229,7 +229,7 @@ class Service(Module):
             ]
         )['containerInstances'][0]['ec2InstanceId']
         inst = ec2.Instance(inst_id)
-        cmd = f'docker exec -it `docker ps | grep {family} | awk \'{{ print $1 }}\'` {command}'
+        cmd = f'docker exec -it `docker ps | grep {family} | awk \'{{ print $1 }}\'` {" ".join(command)}'
         node_mod = self.get_module('node')
         node_mod.ssh_run(cmd, inst=inst, tty=True)
 
@@ -350,7 +350,7 @@ class EcsService(Service):
 
         p = subp.add_parser('run', help='run a command')
         p.add_argument('task', metavar='TASK', help='task name')
-        p.add_argument('command', metavar='COMMAND', help='command to run')
+        p.add_argument('command', metavar='COMMAND', nargs='+', help='command to run')
         p.set_defaults(service_handler=self.handle_run)
 
     def list(self, task_name):
