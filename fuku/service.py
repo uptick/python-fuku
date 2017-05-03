@@ -35,6 +35,7 @@ class Service(Module):
         p.set_defaults(service_handler=self.handle_scale)
 
         p = subp.add_parser('redeploy', help='redeploy all')
+        p.add_argument('task', metavar='TASK', nargs='?', help='task name')
         p.set_defaults(service_handler=self.handle_redeploy)
 
         p = subp.add_parser('rm', help='remove a service')
@@ -245,11 +246,14 @@ class Service(Module):
         )
 
     def handle_redeploy(self, args):
-        self.redeploy()
+        self.redeploy(args.task)
 
-    def redeploy(self):
-        for svc in self.iter_services():
-            self.update(svc)
+    def redeploy(self, task_name):
+        if not task_name:
+            for svc in self.iter_services():
+                self.update(svc)
+        else:
+            self.update(task_name)
 
     def get_task(self, name, escape=True):
         task_mod = self.client.get_module('task')
@@ -329,6 +333,7 @@ class EcsService(Service):
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--expose', '-e', action='store_true', help='expose through load-balancer')
         p.add_argument('--replicas', '-r', help='number of replicas')
+        p.add_argument('--mode', '-m', default='', choices=['global', ''], help='placement mode')
         p.set_defaults(service_handler=self.handle_make)
 
         p = subp.add_parser('up', help='update a service')
@@ -342,6 +347,7 @@ class EcsService(Service):
         p.set_defaults(service_handler=self.handle_scale)
 
         p = subp.add_parser('redeploy', help='redeploy all')
+        p.add_argument('task', metavar='TASK', nargs='?', help='task name')
         p.set_defaults(service_handler=self.handle_redeploy)
 
         p = subp.add_parser('rm', help='remove a service')
@@ -360,7 +366,7 @@ class EcsService(Service):
     def handle_make(self, args):
         self.make(args.task, args.replicas, args.expose)
 
-    def make(self, task_name, replicas=None, expose=False):
+    def make(self, task_name, replicas=None, expose=False, mode=None):
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         task_mod = self.client.get_module('task')
@@ -370,6 +376,7 @@ class EcsService(Service):
         env = env_to_dict(task_mod.get_container_definition(app_task, ctx['app'])['environment'])
         ctr_def = task_mod.get_container_definition(task, task_name)
         env.update(env_to_dict(ctr_def['environment']))
+        env['TASK_NAME'] = task_name
         ctr_def['environment'] = dict_to_env(env)
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
@@ -392,6 +399,10 @@ class EcsService(Service):
                 'field': 'attribute:ecs.availability-zone'
             }]
         }
+        if mode == 'global':
+            kwargs['placementConstraints'] = {
+                'type': 'distinctInstance'
+            }
         if expose:
             kwargs['loadBalancers'] = [
                 {
@@ -403,7 +414,7 @@ class EcsService(Service):
             kwargs['role'] = 'ecsServiceRole'
         ecs_cli.create_service(**kwargs)
 
-    def update(self, task_name, replicas=None):
+    def update(self, task_name, replicas=None, mode=None):
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         task_mod = self.client.get_module('task')
@@ -413,6 +424,7 @@ class EcsService(Service):
         env = env_to_dict(task_mod.get_container_definition(app_task, ctx['app'])['environment'])
         ctr_def = task_mod.get_container_definition(task, task_name)
         env.update(env_to_dict(ctr_def['environment']))
+        env['TASK_NAME'] = f'{ctx["app"]}.{task_name}'
         ctr_def['environment'] = dict_to_env(env)
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
@@ -426,6 +438,10 @@ class EcsService(Service):
             'service': f'fuku-{ctx["app"]}-{task_name}',
             'taskDefinition': f'{task["family"]}:{task["revision"]}',
         }
+        if mode == 'global':
+            kwargs['placementConstraints'] = {
+                'type': 'distinctInstance'
+            }
         if replicas:
             kwargs['desiredCount'] = int(replicas) if replicas is not None else 1
         ecs_cli.update_service(**kwargs)
@@ -473,8 +489,10 @@ class EcsService(Service):
         services = paginator.paginate(cluster=cluster)
         for svcs in services:
             for s in svcs['serviceArns']:
-                ii = s.rfind('-')
-                yield s[ii + 1:]
+                ii = s.rfind('/')
+                _, app, name = s[ii + 1:].split('-')
+                if app == ctx['app']:
+                    yield name
 
     def is_running(self, task_name):
         ecs_cli = self.get_boto_client('ecs')

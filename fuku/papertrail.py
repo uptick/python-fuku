@@ -10,17 +10,15 @@ class Papertrail(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='papertrail help')
 
-        p = subp.add_parser('add')
-        p.set_defaults(papertrail_handler=self.handle_add)
+        p = subp.add_parser('mk', help='make a papertrail task')
+        p.add_argument('dest', metavar='DESTINATION', help='log destination')
+        p.set_defaults(papertrail_handler=self.handle_make)
 
-        p = subp.add_parser('connect')
-        p.add_argument('target')
-        p.set_defaults(papertrail_handler=self.handle_connect)
+    def handle_make(self, args):
+        self.make(args.dest)
 
-    def handle_add(self, args):
+    def make(self, dest):
         task_mod = self.client.get_module('task')
-        task_mod.add('papertrail', '!gliderlabs/logspout:latest',
-                     mode='global')
-        task_mod.mount_set('/var/run/docker.sock', '/var/run/docker.sock',
-                           type='bind')
-        task_mod.command('syslog+tls://{}'.format(args.log))
+        task_mod.make('papertrail', '!gliderlabs/logspout:latest', logs=False)
+        task_mod.volume_add('papertrail', 'socket', '/var/run/docker.sock', '/var/run/docker.sock', read_only=True)
+        task_mod.command(f'syslog://{dest}')

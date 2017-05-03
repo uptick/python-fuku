@@ -85,6 +85,12 @@ class Task(Module):
         p.add_argument('--remove', '-r', action='store_true')
         p.set_defaults(task_handler=self.handle_command)
 
+        p = subp.add_parser('logs', help='set log destination')
+        p.add_argument('name', metavar='NAME', help='task name')
+        p.add_argument('driver', metavar='DRIVER', default='awslogs', choices=['aws', 'syslog'], help='task name')
+        p.add_argument('options', metavar='OPTIONS', action=StoreKeyValuePair, nargs='*', help='driver options')
+        p.set_defaults(task_handler=self.handle_logs)
+
         p = subp.add_parser('prune', help='remove unused task definitions')
         p.set_defaults(task_handler=self.handle_prune)
 
@@ -313,6 +319,40 @@ class Task(Module):
         else:
             ctr_def['command'] = cmd.split()
         self.register_task(task)
+
+    def handle_logs(self, args):
+        self.logs(args.name, args.driver, args.options)
+
+    def logs(self, name, driver, options):
+        ctx = self.get_context()
+        task = self.get_task(name, ctx=ctx)
+        ctr_def = self.get_container_definition(task, name)
+        if driver == 'aws':
+            ctr_def['logConfiguration'] = {
+                'logDriver': 'awslogs',
+                'options': {
+                    'awslogs-group': f'/{ctx["cluster"]}',
+                    'awslogs-region': ctx['region'],
+                    'awslogs-stream-prefix': ctx['app']
+                }
+            }
+        elif driver == 'syslog':
+            opts = {
+                'tag': '{{ (.ExtraAttributes nil).TASK_NAME }}/{{ .ID }}',
+                'env': 'TASK_NAME'
+            }
+            opts.update(options)
+            ctr_def['logConfiguration'] = {
+                'logDriver': 'syslog',
+                'options': opts
+            }
+        elif driver == 'none':
+            try:
+                del ctr_def['logConfiguration']
+            except KeyError:
+                pass
+        self.register_task(task)
+            
 
     def handle_prune(self, args):
         self.prune()

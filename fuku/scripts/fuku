@@ -26,6 +26,7 @@ from fuku.pg import Pg
 from fuku.redis import Redis, EcsRedis
 from fuku.metrics import Metrics
 from fuku.datadog import Datadog
+# from fuku.papertrail import Papertrail
 
 
 if __name__ == '__main__':

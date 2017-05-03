@@ -19,7 +19,7 @@ class Datadog(Module):
 
     def make(self, key):
         task_mod = self.get_module('task')
-        task_mod.make('dd_agent', '!datadog/docker-dd-agent:latest', memory=4, logs=False)
+        task_mod.make('dd_agent', '!datadog/docker-dd-agent:latest', logs=False)
         task_mod.env_set(
             'dd_agent',
             {
