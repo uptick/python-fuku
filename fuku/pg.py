@@ -228,8 +228,7 @@ class Pg(Module):
         ctx = self.get_context()
         inst_name = ctx['dbinstance']
         if db_name:
-            db_id = self.get_db_id(db_name)
-            path = os.path.join(self.get_rc_path(), ctx['app'], inst_name, f'{db_name}.pgpass')
+            db_id, path = self.get_db_creds(db_name)
         else:
             db_id = None
             path = os.path.join(self.get_rc_path(), f'{inst_name}.pgpass')
@@ -253,9 +252,8 @@ class Pg(Module):
 
     def dump(self, db_name, output):
         ctx = self.get_context()
-        path = os.path.join(self.get_rc_path(), ctx['app'], ctx['dbinstance'], '%s.pgpass' % db_name)
+        db_id, path = self.get_db_creds(db_name)
         endpoint = self.get_endpoint(ctx['dbinstance'])
-        db_id = self.get_db_id(db_name)
         self.run(
             'pg_dump -Fc -x -O -h {} -p {} -U {} -d {} -f {}'.format(
                 endpoint['Address'],
@@ -274,11 +272,10 @@ class Pg(Module):
     def restore(self, db_name, input):
         ctx = self.get_context()
         inst_name = ctx['dbinstance']
-        db_id = self.get_db_id(db_name)
+        db_id, path = self.get_db_creds(db_name)
         # self.psql(command=f'DROP DATABASE {db_id}')
         # self.psql(command=f'CREATE DATABASE {db_id} OWNER {inst_name}')
         # self.psql(command=f'GRANT ALL ON DATABASE {db_id} TO {db_id}')
-        path = os.path.join(self.get_rc_path(), ctx['app'], ctx['dbinstance'], '%s.pgpass' % db_name)
         endpoint = self.get_endpoint(ctx['dbinstance'])
         # self.run(
         #     f'psql -h {endpoint["Address"]} -p {endpoint["Port"]} -U {db_name} {db_name} -c \'DROP SCHEMA public CASCADE; CREATE SCHEMA public;\'',
@@ -336,13 +333,28 @@ class Pg(Module):
         ctx = self.get_context()
         path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
         if not os.path.exists(path):
-            self.run(
-                '$aws s3 cp s3://$bucket/fuku/{}/{}.pgpass.gpg {}.gpg'.format(ctx['cluster'], name, path)
-            )
+            s3 = self.get_boto_client('s3')
+            with open(path, 'w') as outf:
+                s3.download_file(ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{inst_name}/{name}.pgpass.gpg', outf)
             self.run(
                 'gpg -o {} -d {}.gpg'.format(path, path)
             )
             os.chmod(path, 0o600)
+
+    def get_db_creds(self, db_name):
+        ctx = self.get_context()
+        db_id = self.get_db_id(db_name)
+        app = ctx['app']
+        inst_name = ctx['dbinstance']
+        path = os.path.join(self.get_rc_path(), app, inst_name, f'{db_name}.pgpass')
+        if not os.path.exists(path):
+            s3 = self.get_boto_client('s3')
+            s3.download_file(ctx['bucket'], f'fuku/{ctx["cluster"]}/{app}/{inst_name}/{db_name}.pgpass.gpg', f'{path}.gpg')
+            self.run(
+                'gpg -o {} -d {}.gpg'.format(path, path)
+            )
+            os.chmod(path, 0o600)
+        return db_id, path
 
     def get_selected(self, fail=True):
         sel = self.store.get('selected', None)
