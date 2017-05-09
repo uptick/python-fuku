@@ -22,6 +22,7 @@ class Service(Module):
         p = subp.add_parser('mk', help='make a service')
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
+        p.add_argument('--min-healthy', default=50, help='minimum healthy tasks (%%)')
         p.set_defaults(service_handler=self.handle_make)
 
         p = subp.add_parser('up', help='update a service')
@@ -230,7 +231,7 @@ class Service(Module):
             ]
         )['containerInstances'][0]['ec2InstanceId']
         inst = ec2.Instance(inst_id)
-        cmd = f'docker exec -it `docker ps | grep {family} | awk \'{{ print $1 }}\'` {" ".join(command)}'
+        cmd = f'docker exec -it `docker ps | grep {family} | awk \'{{ print $1 }}\' | head -1` {" ".join(command)}'
         node_mod = self.get_module('node')
         node_mod.ssh_run(cmd, inst=inst, tty=True)
 
@@ -334,11 +335,13 @@ class EcsService(Service):
         p.add_argument('--expose', '-e', action='store_true', help='expose through load-balancer')
         p.add_argument('--replicas', '-r', help='number of replicas')
         p.add_argument('--mode', '-m', default='', choices=['global', ''], help='placement mode')
+        p.add_argument('--min-healthy', default=50, help='minimum healthy tasks (%%)')
         p.set_defaults(service_handler=self.handle_make)
 
         p = subp.add_parser('up', help='update a service')
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
+        p.add_argument('--min-healthy', help='minimum healthy tasks (%%)')
         p.set_defaults(service_handler=self.handle_update)
 
         p = subp.add_parser('scale', help='scale a service')
@@ -364,9 +367,9 @@ class EcsService(Service):
             print(svc)
 
     def handle_make(self, args):
-        self.make(args.task, args.replicas, args.expose)
+        self.make(args.task, args.replicas, args.expose, min_healthy=args.min_healthy)
 
-    def make(self, task_name, replicas=None, expose=False, mode=None):
+    def make(self, task_name, replicas=None, expose=False, mode=None, min_healthy=50):
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         task_mod = self.client.get_module('task')
@@ -392,7 +395,7 @@ class EcsService(Service):
             'desiredCount': int(replicas) if replicas is not None else 1,
             'deploymentConfiguration': {
                 'maximumPercent': 200,
-                'minimumHealthyPercent': 50
+                'minimumHealthyPercent': int(min_healthy)
             },
             'placementStrategy': [{
                 'type': 'spread',

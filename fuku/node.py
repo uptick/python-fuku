@@ -3,6 +3,7 @@ import json
 import base64
 
 from .module import Module
+from .utils import json_serial
 
 
 class Node(Module):
@@ -26,6 +27,7 @@ class Node(Module):
         p.add_argument('name', metavar='NAME', help='node name')
         p.add_argument('--manager', '-m', action='store_true', help='manager node (Swarm)')
         p.add_argument('--availability-zone', '-a', choices=['a', 'b'], help='availability zone')
+        p.add_argument('--type', '-t', default='t2.micro', help='instance type')
         p.set_defaults(node_handler=self.handle_make)
 
         p = subp.add_parser('rm', help='remove a node')
@@ -59,13 +61,33 @@ class Node(Module):
         self.list(args.name)
 
     def list(self, name):
-        for name in self.get_instance_names():
-            print(name)
+        if name:
+            ec2_cli = self.get_boto_client('ec2')
+            cluster = self.client.get_selected('cluster')
+            filters = [
+                {
+                    'Name': 'tag:cluster',
+                    'Values': [cluster]
+                },
+                {
+                    'Name': 'tag:name',
+                    'Values': [name]
+                },
+                {
+                    'Name': 'instance-state-name',
+                    'Values': ['pending', 'running', 'shutting-down', 'stopping', 'stopped']
+                }
+            ]
+            inst = ec2_cli.describe_instances(Filters=filters)['Reservations'][0]['Instances'][0]
+            print(json.dumps(inst, default=json_serial, indent=2))
+        else:
+            for name in self.get_instance_names():
+                print(name)
 
     def handle_make(self, args):
-        self.make(args.name, args.manager)
+        self.make(args.name, args.manager, args.type)
 
-    def make(self, name, manager=False):
+    def make(self, name, manager, type):
         self.validate(name)
         existing = self.get_instance_names()
         if name in existing:
@@ -82,7 +104,7 @@ class Node(Module):
             'SubnetId': sn.id,
             'KeyName': f'fuku-{ctx["cluster"]}',
             'SecurityGroupIds': [sg_id],
-            'InstanceType': 't2.micro',
+            'InstanceType': type,
             'IamInstanceProfile': {
                 'Name': 'ec2-profile'
             },
@@ -347,7 +369,15 @@ class Node(Module):
                 'Name': 'ec2-profile'
             },
             'MinCount': 1,
-            'MaxCount': 1
+            'MaxCount': 1,
+            # 'BlockDeviceMappings': [
+            #     {
+            #         'DeviceName': '/dev/xvdcz',
+            #         'Ebs': {
+            #             'VolumeSize': 10
+            #         }
+            #     }
+            # ]
         }
         inst = ec2.run_instances(**opts)
         inst_id = inst['Instances'][0]['InstanceId']
@@ -397,6 +427,7 @@ class EcsNode(Node):
         p = subp.add_parser('mk', help='make a node')
         p.add_argument('name', metavar='NAME', help='node name')
         p.add_argument('--availability-zone', '-a', choices=['a', 'b'], help='availability zone')
+        p.add_argument('--type', '-t', help='instance type')
         p.set_defaults(node_handler=self.handle_make)
 
         p = subp.add_parser('rm', help='remove a node')
@@ -419,9 +450,9 @@ class EcsNode(Node):
         p.set_defaults(node_handler=self.handle_reboot)
 
     def handle_make(self, args):
-        self.make(args.name, args.availability_zone)
+        self.make(args.name, args.availability_zone, args.type)
 
-    def make(self, name, zone):
+    def make(self, name, zone, type):
         self.validate(name)
         existing = self.get_instance_names()
         if name in existing:
@@ -436,13 +467,19 @@ class EcsNode(Node):
             'SubnetId': sn.id,
             'KeyName': f'fuku-{ctx["cluster"]}',
             'SecurityGroupIds': [sg_id],
-            'InstanceType': 't2.micro',
+            'InstanceType': type,
             'IamInstanceProfile': {
                 'Name': 'ec2-profile'
             },
             'MinCount': 1,
             'MaxCount': 1,
-            'UserData': f'#!/bin/bash\necho ECS_CLUSTER=fuku-{ctx["cluster"]} >> /etc/ecs/ecs.config'
+            'UserData': f'#!/bin/bash\necho ECS_CLUSTER=fuku-{ctx["cluster"]} >> /etc/ecs/ecs.config',
+            # 'BlockDeviceMappings': [
+            #     {
+            #         'DeviceName': '/dev/xvdcz',
+            #         'VirtualName': 'ephemeral0'
+            #     }
+            # ]
         }
         inst = ec2.run_instances(**opts)
         inst_id = inst['Instances'][0]['InstanceId']

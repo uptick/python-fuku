@@ -52,6 +52,7 @@ class App(Module):
 
     def make(self, name):
         self.use_context = False
+        self.validate(name)
         self.create_group(name)
         self.make_task(name)
         self.select(name)

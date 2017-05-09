@@ -29,6 +29,8 @@ class Module(object):
     def validate(self, name):
         if '-' in name:
             self.error(f'identifiers cannot contain dashes')
+        if '_' in name:
+            self.error(f'identifiers cannot contain underscores')
         if name == 'fuku':
             self.error('"fuku" is a reserved name')
         if ' ' in name:

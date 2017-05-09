@@ -15,40 +15,50 @@ class Pg(Module):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='pg help')
 
-        p = subp.add_parser('ls', help='list DBs')
+        p = subp.add_parser('ls', help='list postgres DBs')
         p.add_argument('name', metavar='NAME', nargs='?', help='DB name')
         p.set_defaults(pg_handler=self.handle_list)
 
-        p = subp.add_parser('mk', help='add a postgres database')
-        p.add_argument('name', metavar='NAME', help='DB name')
+        p = subp.add_parser('mk', help='add a postgres instance')
+        p.add_argument('name', metavar='NAME', help='instance name')
         p.add_argument('--backup', '-b', default=7, type=int, help='number of days to retain backups')
+        p.add_argument('--storage', '-s', default=5, type=int, help='allocated storage (GB)')
         p.set_defaults(pg_handler=self.handle_make)
 
-        p = subp.add_parser('cache', help='cache DB details')
-        p.add_argument('name', metavar='NAME', help='DB name')
-        p.add_argument('password', metavar='PASSWORD', help='DB password')
-        p.set_defaults(pg_handler=self.handle_cache)
+        # p = subp.add_parser('cache', help='cache instance details')
+        # p.add_argument('name', metavar='NAME', help='DB name')
+        # p.add_argument('password', metavar='PASSWORD', help='DB password')
+        # p.set_defaults(pg_handler=self.handle_cache)
+
+        p = subp.add_parser('db', help='manage databases')
+        ssp = p.add_subparsers()
+        p = ssp.add_parser('ls')
+        p.set_defaults(pg_handler=self.handle_db_list)
+        p = ssp.add_parser('mk')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.set_defaults(pg_handler=self.handle_db_make)
 
         p = subp.add_parser('connect', help='connect to a task')
-        p.add_argument('name', metavar='NAME', help='DB name')
-        p.add_argument('target', metavar='TARGET', nargs='?', help='target task name')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.add_argument('--task', '-t', help='target task name')
         p.set_defaults(pg_handler=self.handle_connect)
 
-        p = subp.add_parser('sl', help='select a postgres database')
-        p.add_argument('name', metavar='NAME', nargs='?', help='database to select')
-        p.add_argument('--show', '-s', action='store_true', help='show currently db')
+        p = subp.add_parser('sl', help='select a postgres DB')
+        p.add_argument('name', metavar='NAME', nargs='?', help='instance to select')
         p.set_defaults(pg_handler=self.handle_select)
 
         p = subp.add_parser('psql')
-        # p.add_argument('name', metavar='NAME', nargs='', help='DB name')
+        p.add_argument('--dbname', '-d', help='DB name')
         p.add_argument('--command', '-c',  help='run SQL')
         p.set_defaults(pg_handler=self.handle_psql)
 
         p = subp.add_parser('dump', help='dump contents of database')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.add_argument('output', metavar='OUTPUT', help='output filename')
         p.set_defaults(pg_handler=self.handle_dump)
 
         p = subp.add_parser('restore', help='restore a database')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.add_argument('input', metavar='INPUT', help='database dump file')
         p.set_defaults(pg_handler=self.handle_restore)
 
@@ -58,33 +68,32 @@ class Pg(Module):
     def list(self, name):
         self.use_context = False
         ctx = self.get_context()
-        app = ctx['app']
         rds = self.get_boto_client('rds')
         if name:
             data = rds.describe_db_instances(
                 Filter=[{
                     'Key': 'Name',
-                    'Values': [self.get_id(name)]
+                    'Values': [self.get_instance_id(name)]
                 }]
             )
             print(json.dumps(data, indent=2))
         else:
             data = rds.describe_db_instances()
-            pre = self.get_id('')
+            pre = self.get_instance_id('')
             for db in data['DBInstances']:
                 name = db['DBInstanceIdentifier']
                 if name.startswith(pre):
                     print(name[len(pre):])
 
     def handle_make(self, args):
-        self.make(args.name, args.backup)
+        self.make(args.name, args.backup, args.storage)
 
-    def make(self, name, backup):
+    def make(self, name, backup, storage=5):
         self.use_context = False
         ctx = self.get_context()
-        app = ctx['app']
         password = gen_secret(16)
-        inst_id = self.get_id(name)
+        inst_id = self.get_instance_id(name)
+        db_id = 'postgres'
         sg_id = self.client.get_module('cluster').get_security_group_id()
         rds = self.get_boto_client('rds')
         rds.create_db_subnet_group(
@@ -93,11 +102,12 @@ class Pg(Module):
             SubnetIds=[sn.id for sn in self.get_module('cluster').iter_public_subnets(ctx['cluster'])]
         )
         data = rds.create_db_instance(
-            DBName=name,
+            DBName=db_id,
             DBInstanceIdentifier=inst_id,
             DBInstanceClass='db.t2.micro',
             Engine='postgres',
-            AllocatedStorage=5,
+            AllocatedStorage=storage,
+            StorageType='gp2',
             MasterUsername=name,
             MasterUserPassword=password,
             BackupRetentionPeriod=backup,
@@ -108,10 +118,6 @@ class Pg(Module):
                 {
                     'Key': 'cluster',
                     'Value': ctx['cluster']
-                },
-                {
-                    'Key': 'app',
-                    'Value': app
                 }
             ]
         )
@@ -119,16 +125,26 @@ class Pg(Module):
         waiter.wait(
             DBInstanceIdentifier=inst_id
         )
-        self.cache(name, password)
+        self.cache(name, db_id, password)
         self.select(name)
 
-    def handle_cache(self, args):
-        self.cache(args.name, args.password)
+    def handle_db_list(self, args):
+        pass
 
-    def cache(self, name, password):
+    def handle_db_make(self, args):
+        self.db_make(args.dbname)
+
+    def db_make(self, name):
+        password = gen_secret(16)
         ctx = self.get_context()
-        data = self.get_endpoint(name)
-        path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
+        inst_name = ctx['dbinstance']
+        db_id = self.get_db_id(name)
+        self.psql(command=f'CREATE DATABASE {db_id} OWNER {inst_name}')
+        self.psql(command=f'CREATE ROLE {db_id} NOSUPERUSER NOCREATEDB NOCREATEROLE LOGIN ENCRYPTED PASSWORD \'{password}\'')
+        self.psql(command=f'GRANT ALL ON DATABASE {db_id} TO {db_id}')
+        self.psql(command=f'GRANT rds_superuser TO {db_id}')
+        data = self.get_endpoint(inst_name)
+        path = os.path.join(self.get_rc_path(), ctx['app'], inst_name, f'{name}.pgpass')
         try:
             os.makedirs(os.path.dirname(path))
         except OSError:
@@ -137,20 +153,43 @@ class Pg(Module):
             outf.write('{}:{}:{}:{}:{}'.format(
                 data['Address'],
                 data['Port'],
-                name,
-                name,
+                db_id,
+                db_id,
                 password
             ))
         os.chmod(path, 0o600)
         self.encrypt_file(path, purpose='the database credentials')
         s3 = self.get_boto_client('s3')
-        s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass.gpg')
+        s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{inst_name}/{name}.pgpass.gpg')
+
+    # def handle_cache(self, args):
+    #     self.cache(args.name, args.password)
+
+    def cache(self, inst_name, db_name, password):
+        ctx = self.get_context() 
+        data = self.get_endpoint(inst_name)
+        path = os.path.join(self.get_rc_path(), f'{inst_name}.pgpass')
+        try:
+            os.makedirs(os.path.dirname(path))
+        except OSError:
+            pass
+        with open(path, 'w') as outf:
+            outf.write('{}:{}:{}:{}:{}'.format(
+                data['Address'],
+                data['Port'],
+                db_name,
+                inst_name,
+                password
+            ))
+        os.chmod(path, 0o600)
+        self.encrypt_file(path, purpose='the database credentials')
+        s3 = self.get_boto_client('s3')
+        s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/{inst_name}.pgpass.gpg')
 
     def handle_connect(self, args):
-        self.connect(args.name, args.target)
+        self.connect(args.dbname, args.task)
 
     def connect(self, db_name, task_name):
-        self.use_context = False
         task_mod = self.client.get_module('task')
         env = {
             'DATABASE_URL': self.get_url(db_name)
@@ -158,48 +197,48 @@ class Pg(Module):
         task_mod.env_set(task_name, env)
 
     def handle_select(self, args):
-        self.select(args.name, args.show)
+        self.select(args.name)
 
-    def select(self, name, show=False):
-        if show:
-            sel = self.get_selected(fail=False)
-            if sel:
-                print(sel)
+    def select(self, name):
+        if name:
+            self.use_context = False
+            ctx = self.get_context()
+            pgpass_path = f'{ctx["cluster"]}/{name}.pgpass'
+            # self.exists(name)
+            self.get_secure_file(pgpass_path)
+            self.get_pgpass_file(name)
+            self.store['selected'] = name
         else:
-            if name:
+            sel = self.store.get('selected', None)
+            if sel:
                 self.use_context = False
                 ctx = self.get_context()
-                pgpass_path = f'{ctx["cluster"]}/{ctx["app"]}/{name}.pgpass'
-                # self.exists(name)
-                self.get_secure_file(pgpass_path)
-                self.get_pgpass_file(name)
-                self.store['selected'] = name
-            else:
-                sel = self.store.get('selected', None)
-                if sel:
-                    self.use_context = False
-                    ctx = self.get_context()
-                    pgpass_path = f'{ctx["cluster"]}/{ctx["app"]}/{sel}.pgpass'
-                    self.clear_secure_file(pgpass_path)
-                try:
-                    del self.store['selected']
-                except KeyError:
-                    pass
-            self.clear_parent_selections()
+                pgpass_path = f'{ctx["cluster"]}/{sel}.pgpass'
+                self.clear_secure_file(pgpass_path)
+            try:
+                del self.store['selected']
+            except KeyError:
+                pass
+        self.clear_parent_selections()
 
     def handle_psql(self, args):
-        self.psql(args.command)
+        self.psql(args.dbname, args.command)
 
-    def psql(self, command=None):
+    def psql(self, db_name=None, command=None):
         ctx = self.get_context()
-        name = ctx['db']
-        path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
-        endpoint = self.get_endpoint(name)
+        inst_name = ctx['dbinstance']
+        if db_name:
+            db_id = self.get_db_id(db_name)
+            path = os.path.join(self.get_rc_path(), ctx['app'], inst_name, f'{db_name}.pgpass')
+        else:
+            db_id = None
+            path = os.path.join(self.get_rc_path(), f'{inst_name}.pgpass')
+        endpoint = self.get_endpoint(inst_name)
         cmd = 'psql -h {} -p {} -U {} -d {}'.format(
             endpoint['Address'],
             endpoint['Port'],
-            name,
-            name
+            db_id or ctx['dbinstance'],
+            db_id or 'postgres'
         )
         if command:
             cmd = f'{cmd} -c "{self.escape(command)}"'
@@ -210,20 +249,19 @@ class Pg(Module):
         )
 
     def handle_dump(self, args):
-        self.dump(args.output)
+        self.dump(args.dbname, args.output)
 
-    def dump(self, output):
+    def dump(self, db_name, output):
         ctx = self.get_context()
-        app = self.client.get_selected('app')
-        name = self.get_selected()
-        path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
-        endpoint = self.get_endpoint(name)
+        path = os.path.join(self.get_rc_path(), ctx['app'], ctx['dbinstance'], '%s.pgpass' % db_name)
+        endpoint = self.get_endpoint(ctx['dbinstance'])
+        db_id = self.get_db_id(db_name)
         self.run(
-            'pg_dump -Fc --no-acl --no-owner -h {} -p {} -U {} -d {} -f {}'.format(
+            'pg_dump -Fc -x -O -h {} -p {} -U {} -d {} -f {}'.format(
                 endpoint['Address'],
                 endpoint['Port'],
-                name,
-                name,
+                db_id,
+                db_id,
                 output
             ),
             capture=False,
@@ -231,31 +269,42 @@ class Pg(Module):
         )
 
     def handle_restore(self, args):
+        self.restore(args.dbname, args.input)
+
+    def restore(self, db_name, input):
         ctx = self.get_context()
-        name = self.get_selected()
-        path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
-        endpoint = self.get_endpoint(name)
+        inst_name = ctx['dbinstance']
+        db_id = self.get_db_id(db_name)
+        # self.psql(command=f'DROP DATABASE {db_id}')
+        # self.psql(command=f'CREATE DATABASE {db_id} OWNER {inst_name}')
+        # self.psql(command=f'GRANT ALL ON DATABASE {db_id} TO {db_id}')
+        path = os.path.join(self.get_rc_path(), ctx['app'], ctx['dbinstance'], '%s.pgpass' % db_name)
+        endpoint = self.get_endpoint(ctx['dbinstance'])
+        # self.run(
+        #     f'psql -h {endpoint["Address"]} -p {endpoint["Port"]} -U {db_name} {db_name} -c \'DROP SCHEMA public CASCADE; CREATE SCHEMA public;\'',
+        #     env={'PGPASSFILE': path}
+        # )
         self.run(
-            f'psql -h {endpoint["Address"]} -p {endpoint["Port"]} -U {name} {name} -c \'DROP SCHEMA public CASCADE; CREATE SCHEMA public;\'',
-            env={'PGPASSFILE': path}
-        )
-        self.run(
-            f'pg_restore --no-acl --no-owner -h {endpoint["Address"]} -p {endpoint["Port"]} -U {name} -d {name} {args.input}',
+            f'pg_restore -x -O -c -h {endpoint["Address"]} -p {endpoint["Port"]} -U {db_id} -d {db_id} {input}',
             capture=False,
             env={'PGPASSFILE': path}
         )
 
-    def get_id(self, name):
+    def get_instance_id(self, instance):
         ctx = self.get_context()
-        return f'fuku-{ctx["cluster"]}-{ctx["app"]}-{name}'
+        return f'fuku-{ctx["cluster"]}-{instance}'
+
+    def get_db_id(self, name):
+        ctx = self.get_context()
+        return f'{ctx["app"]}_{name}'
 
     def get_rc_path(self):
         ctx = self.get_context()
-        return os.path.join(get_rc_path(), ctx['cluster'], ctx['app'])
+        return os.path.join(get_rc_path(), ctx['cluster'])
 
     def get_endpoint(self, name):
         ctx = self.get_context()
-        inst_id = self.get_id(name)
+        inst_id = self.get_instance_id(name)
         rds = self.get_boto_client('rds')
         try:
             return rds.describe_db_instances(
@@ -264,24 +313,31 @@ class Pg(Module):
         except:
             self.error(f'no database "{name}"')
 
-    def get_url(self, name):
+    def get_instance(self, inst_name):
+        return rds.describe_db_instances(
+            Filter=[{
+                'Key': 'Name',
+                'Values': [self.get_instance_id(inst_name)]
+            }]
+        )
+
+    def get_url(self, db_name):
         ctx = self.get_context()
-        path = os.path.join(self.get_rc_path(), f'{name}.pgpass')
+        path = os.path.join(self.get_rc_path(), ctx['app'], ctx['dbinstance'], f'{db_name}.pgpass')
         try:
             with open(path, 'r') as inf:
                 data = inf.read()
         except:
-            self.error(f'no cached information for "{name}"')
+            self.error(f'no cached information for "{db_name}"')
         host, port, db, user, pw = data.split(':')
         return 'postgres://{}:{}@{}:{}/{}'.format(user, pw, host, port, db)
 
     def get_pgpass_file(self, name):
         ctx = self.get_context()
-        app = self.client.get_selected('app')
         path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
         if not os.path.exists(path):
             self.run(
-                '$aws s3 cp s3://$bucket/fuku/{}/{}/{}.pgpass.gpg {}.gpg'.format(app, ctx['cluster'], name, path)
+                '$aws s3 cp s3://$bucket/fuku/{}/{}.pgpass.gpg {}.gpg'.format(ctx['cluster'], name, path)
             )
             self.run(
                 'gpg -o {} -d {}.gpg'.format(path, path)
@@ -299,5 +355,5 @@ class Pg(Module):
         if not sel:
             self.error('no DB currently selected')
         return {
-            'db': sel
+            'dbinstance': sel
         }

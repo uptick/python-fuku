@@ -2,6 +2,7 @@ import argparse
 import string
 import random
 from contextlib import contextmanager
+from datetime import datetime
 
 import botocore
 
@@ -159,3 +160,10 @@ def limit_exceeded():
     except botocore.exceptions.ClientError as e:
         if e.response['Error']['Code'] != 'LimitExceeded':
             raise
+
+
+def json_serial(obj):
+    if isinstance(obj, datetime):
+        serial = obj.isoformat()
+        return serial
+    raise TypeError('type not serializable')

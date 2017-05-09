@@ -123,7 +123,8 @@ class Task(Module):
         ctr_def = {
             'name': name,
             'image': img_uri,
-            'memoryReservation': int(memory or 4),
+            'memory': int(memory or 4),
+            'memoryReservation': int(memory or 4)
         }
         if logs:
             ctr_def['logConfiguration'] = {
@@ -176,6 +177,7 @@ class Task(Module):
         if cpu is not None:
             ctr_def['cpu'] = int(cpu)
         if memory is not None:
+            ctr_def['memory'] = int(memory)
             ctr_def['memoryReservation'] = int(memory)
         self.register_task(task)
 
