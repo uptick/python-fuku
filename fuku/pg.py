@@ -206,7 +206,7 @@ class Pg(Module):
             pgpass_path = f'{ctx["cluster"]}/{name}.pgpass'
             # self.exists(name)
             self.get_secure_file(pgpass_path)
-            self.get_pgpass_file(name)
+            # self.get_pgpass_file(name)
             self.store['selected'] = name
         else:
             sel = self.store.get('selected', None)
@@ -329,32 +329,25 @@ class Pg(Module):
         host, port, db, user, pw = data.split(':')
         return 'postgres://{}:{}@{}:{}/{}'.format(user, pw, host, port, db)
 
-    def get_pgpass_file(self, name):
-        ctx = self.get_context()
-        path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
-        if not os.path.exists(path):
-            s3 = self.get_boto_client('s3')
-            with open(path, 'w') as outf:
-                s3.download_file(ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{inst_name}/{name}.pgpass.gpg', outf)
-            self.run(
-                'gpg -o {} -d {}.gpg'.format(path, path)
-            )
-            os.chmod(path, 0o600)
+    # def get_pgpass_file(self, name):
+    #     ctx = self.get_context()
+    #     path = os.path.join(self.get_rc_path(), '%s.pgpass' % name)
+    #     if not os.path.exists(path):
+    #         s3 = self.get_boto_client('s3')
+    #         s3.download_file(ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{inst_name}/{name}.pgpass.gpg', path)
+    #         self.run(
+    #             'gpg -o {} -d {}.gpg'.format(path, path)
+    #         )
+    #         os.chmod(path, 0o600)
 
     def get_db_creds(self, db_name):
         ctx = self.get_context()
         db_id = self.get_db_id(db_name)
         app = ctx['app']
         inst_name = ctx['dbinstance']
-        path = os.path.join(self.get_rc_path(), app, inst_name, f'{db_name}.pgpass')
-        if not os.path.exists(path):
-            s3 = self.get_boto_client('s3')
-            s3.download_file(ctx['bucket'], f'fuku/{ctx["cluster"]}/{app}/{inst_name}/{db_name}.pgpass.gpg', f'{path}.gpg')
-            self.run(
-                'gpg -o {} -d {}.gpg'.format(path, path)
-            )
-            os.chmod(path, 0o600)
-        return db_id, path
+        path = f'{ctx["cluster"]}/{app}/{inst_name}/{db_name}.pgpass'
+        full_path = self.get_secure_file(path)
+        return db_id, full_path
 
     def get_selected(self, fail=True):
         sel = self.store.get('selected', None)
