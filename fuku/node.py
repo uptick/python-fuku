@@ -3,7 +3,10 @@ import json
 import base64
 
 from .module import Module
-from .utils import json_serial
+from .utils import (
+    json_serial,
+    StoreKeyValuePair
+)
 
 
 class Node(Module):
@@ -29,6 +32,11 @@ class Node(Module):
         p.add_argument('--availability-zone', '-a', choices=['a', 'b'], help='availability zone')
         p.add_argument('--type', '-t', default='t2.micro', help='instance type')
         p.set_defaults(node_handler=self.handle_make)
+
+        p = subp.add_parser('putattr', help='add attribute')
+        p.add_argument('name', metavar='NAME', help='node name')
+        p.add_argument('values', metavar='VALUES', action=StoreKeyValuePair, nargs='*', help='attributes')
+        p.set_defaults(node_handler=self.handle_put_attributes)
 
         p = subp.add_parser('rm', help='remove a node')
         p.add_argument('name', metavar='NAME', help='node name')
@@ -119,6 +127,26 @@ class Node(Module):
         self.wait(name)
         if manager:
             self.init_swarm(name)
+
+    def handle_put_attributes(self, args):
+        self.put_attribute(args.name, args.values)
+
+    def put_attribute(self, name, values):
+        ctx = self.get_context()
+        ecs = self.get_boto_client('ecs')
+        arn = self.get_instance_arn(name)
+        attrs = []
+        for k, v in values.items():
+            attrs.append({
+                'name': k,
+                'value': v,
+                'targetType': 'container-instance',
+                'targetId': arn
+            })
+        ecs.put_attributes(
+            cluster=f'fuku-{ctx["cluster"]}',
+            attributes=attrs
+        )
 
     def handle_remove(self, args):
         self.remove(args.name)
@@ -291,6 +319,26 @@ class Node(Module):
             self.error(f'no node in cluster "{cluster}" with name "{name}"')
         return insts[0]
 
+    def get_instance_arn(self, name):
+        ctx = self.get_context()
+        ecs = self.get_boto_client('ecs')
+        paginator = ecs.get_paginator('list_container_instances')
+        cluster = self.client.get_selected('cluster')
+        ec2inst = self.get_instance(name)
+        instances = paginator.paginate(
+            cluster=f'fuku-{ctx["cluster"]}',
+        )
+        for inst in instances:
+            for arn in inst['containerInstanceArns']:
+                res = ecs.describe_container_instances(
+                    cluster=f'fuku-{ctx["cluster"]}',
+                    containerInstances=[arn]
+                )
+                for ci in res['containerInstances']:
+                    if ci['ec2InstanceId'] == ec2inst.id:
+                        return arn
+        raise Exception
+
     def get_bastion(self):
         return self.get_instance('bastion')
 
@@ -429,6 +477,11 @@ class EcsNode(Node):
         p.add_argument('--availability-zone', '-a', choices=['a', 'b'], help='availability zone')
         p.add_argument('--type', '-t', help='instance type')
         p.set_defaults(node_handler=self.handle_make)
+
+        p = subp.add_parser('putattr', help='add attribute')
+        p.add_argument('name', metavar='NAME', help='node name')
+        p.add_argument('values', metavar='VALUES', action=StoreKeyValuePair, nargs='*', help='attributes')
+        p.set_defaults(node_handler=self.handle_put_attributes)
 
         p = subp.add_parser('rm', help='remove a node')
         p.add_argument('name', metavar='NAME', help='node name')

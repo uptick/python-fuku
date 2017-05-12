@@ -1,6 +1,7 @@
 from .module import Module
 from .runner import CommandError
 from .utils import (
+    StoreKeyValuePair,
     env_to_string, ports_to_string, env_to_dict, dict_to_env,
     mounts_to_string, volumes_to_dict
 )
@@ -23,11 +24,13 @@ class Service(Module):
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
         p.add_argument('--min-healthy', default=50, help='minimum healthy tasks (%%)')
+        p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
         p.set_defaults(service_handler=self.handle_make)
 
         p = subp.add_parser('up', help='update a service')
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
+        p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
         p.set_defaults(service_handler=self.handle_update)
 
         p = subp.add_parser('scale', help='scale a service')
@@ -132,7 +135,7 @@ class Service(Module):
             self.error('failed to launch service, please check the task command')
 
     def handle_update(self, args):
-        self.update(args.task, args.replicas)
+        self.update(args.task, args.replicas, placement=args.placement)
 
     def update(self, task_name, replicas=None):
         ctx = self.get_context()
@@ -334,7 +337,8 @@ class EcsService(Service):
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--expose', '-e', action='store_true', help='expose through load-balancer')
         p.add_argument('--replicas', '-r', help='number of replicas')
-        p.add_argument('--mode', '-m', default='', choices=['global', ''], help='placement mode')
+        # p.add_argument('--mode', '-m', default='', choices=['global', ''], help='placement mode')
+        p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
         p.add_argument('--min-healthy', default=50, help='minimum healthy tasks (%%)')
         p.set_defaults(service_handler=self.handle_make)
 
@@ -342,7 +346,9 @@ class EcsService(Service):
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
         p.add_argument('--min-healthy', help='minimum healthy tasks (%%)')
+        p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
         p.set_defaults(service_handler=self.handle_update)
+
 
         p = subp.add_parser('scale', help='scale a service')
         p.add_argument('task', metavar='TASK', help='task name')
@@ -367,9 +373,9 @@ class EcsService(Service):
             print(svc)
 
     def handle_make(self, args):
-        self.make(args.task, args.replicas, args.expose, min_healthy=args.min_healthy)
+        self.make(args.task, args.replicas, args.expose, min_healthy=args.min_healthy, placement=args.placement)
 
-    def make(self, task_name, replicas=None, expose=False, mode=None, min_healthy=50):
+    def make(self, task_name, replicas=None, expose=False, mode=None, min_healthy=50, placement=None):
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         task_mod = self.client.get_module('task')
@@ -402,10 +408,19 @@ class EcsService(Service):
                 'field': 'attribute:ecs.availability-zone'
             }]
         }
-        if mode == 'global':
-            kwargs['placementConstraints'] = {
-                'type': 'distinctInstance'
-            }
+        # if mode == 'global':
+        #     kwargs['placementConstraints'] = {
+        #         'type': 'distinctInstance'
+        #     }
+        if placement:
+            attr = list(placement.keys())[0]
+            val = list(placement.values())[0]
+            kwargs['placementConstraints'] = [
+                {
+                    'type': 'memberOf',
+                    'expression': f'attribute:{attr} == {val}'
+                }
+            ]
         if expose:
             kwargs['loadBalancers'] = [
                 {
@@ -417,7 +432,7 @@ class EcsService(Service):
             kwargs['role'] = 'ecsServiceRole'
         ecs_cli.create_service(**kwargs)
 
-    def update(self, task_name, replicas=None, mode=None):
+    def update(self, task_name, replicas=None, mode=None, placement=None):
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         task_mod = self.client.get_module('task')
@@ -441,9 +456,16 @@ class EcsService(Service):
             'service': f'fuku-{ctx["app"]}-{task_name}',
             'taskDefinition': f'{task["family"]}:{task["revision"]}',
         }
-        if mode == 'global':
+        # if mode == 'global':
+        #     kwargs['placementConstraints'] = {
+        #         'type': 'distinctInstance'
+        #     }
+        if placement:
+            attr = list(placement.keys())[0]
+            val = list(placement.values())[0]
             kwargs['placementConstraints'] = {
-                'type': 'distinctInstance'
+                'type': 'memberOf',
+                'expression': f'attribute:{attr} == {val}'
             }
         if replicas:
             kwargs['desiredCount'] = int(replicas) if replicas is not None else 1
