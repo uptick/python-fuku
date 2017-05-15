@@ -106,8 +106,10 @@ class App(Module):
             )
 
     def iter_groups(self):
+        self.use_context = False
+        ctx = self.get_context()
         iam = self.get_boto_resource('iam')
-        for gr in iam.groups.filter(PathPrefix='/fuku/'):
+        for gr in iam.groups.filter(PathPrefix=f'/fuku/{ctx["cluster"]}/'):
             yield gr
 
     def create_group(self, name):
