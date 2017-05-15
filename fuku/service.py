@@ -1,6 +1,9 @@
+import json
+
 from .module import Module
 from .runner import CommandError
 from .utils import (
+    json_serial,
     StoreKeyValuePair,
     env_to_string, ports_to_string, env_to_dict, dict_to_env,
     mounts_to_string, volumes_to_dict
@@ -349,7 +352,6 @@ class EcsService(Service):
         p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
         p.set_defaults(service_handler=self.handle_update)
 
-
         p = subp.add_parser('scale', help='scale a service')
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('replicas', metavar='REPLICAS', help='number of replicas')
@@ -358,6 +360,11 @@ class EcsService(Service):
         p = subp.add_parser('redeploy', help='redeploy all')
         p.add_argument('task', metavar='TASK', nargs='?', help='task name')
         p.set_defaults(service_handler=self.handle_redeploy)
+
+        p = subp.add_parser('wait', help='redeploy all')
+        p.add_argument('tasks', metavar='TASK', nargs='*', help='task name')
+        p.add_argument('--stable', '-s', action='store_true', help='wait for stable services')
+        p.set_defaults(service_handler=self.handle_wait)
 
         p = subp.add_parser('rm', help='remove a service')
         p.add_argument('task', metavar='TASK', help='task name')
@@ -369,8 +376,19 @@ class EcsService(Service):
         p.set_defaults(service_handler=self.handle_run)
 
     def list(self, task_name):
-        for svc in self.iter_services(task_name):
-            print(svc)
+        if task_name:
+            ecs = self.get_boto_client('ecs')
+            ctx = self.get_context()
+            data = ecs.describe_services(
+                cluster=f'fuku-{ctx["cluster"]}',
+                services=[
+                    f'fuku-{ctx["app"]}-{task_name}'
+                ]
+            )['services'][0]
+            print(json.dumps(data, default=json_serial, indent=2))
+        else:
+            for svc in self.iter_services(task_name):
+                print(svc)
 
     def handle_make(self, args):
         self.make(args.task, args.replicas, args.expose, min_healthy=args.min_healthy, placement=args.placement)
@@ -487,6 +505,23 @@ class EcsService(Service):
             service=f'fuku-{ctx["app"]}-{task_name}',
             taskDefinition=f'{family}:{task["revision"]}',
             desiredCount=int(replicas) if replicas is not None else 1
+        )
+
+    def handle_wait(self, args):
+        self.wait(args.tasks, args.stable)
+
+    def wait(self, task_names, stable):
+        if not task_names:
+            task_names = list(self.iter_services())
+        ecs = self.get_boto_client('ecs')
+        ctx = self.get_context()
+        waiter = ecs.get_waiter('services_stable')
+        waiter.wait(
+            cluster=f'fuku-{ctx["cluster"]}',
+            services=[
+                f'fuku-{ctx["app"]}-{n}'
+                for n in task_names
+            ]
         )
 
     def remove(self, task_name):
