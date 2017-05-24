@@ -33,7 +33,7 @@ class Task(Module):
 
         p = subp.add_parser('up', help='update a task')
         p.add_argument('name', metavar='NAME', help='task name')
-        p.add_argument('image', metavar='IMAGE', help='image name')
+        p.add_argument('--image', '-i', metavar='IMAGE', help='image name')
         p.add_argument('--cpu', '-c', help='cpu reservation')
         p.add_argument('--memory', '-m', help='memory reservation (MiB)')
         p.set_defaults(task_handler=self.handle_update)
@@ -168,12 +168,13 @@ class Task(Module):
     def handle_update(self, args):
         self.update(args.name, args.image, args.cpu, args.memory)
 
-    def update(self, name, image_name, cpu=None, memory=None):
+    def update(self, name, image_name=None, cpu=None, memory=None):
         ctx = self.get_context()
-        img_uri = self.client.get_module('image').image_name_to_uri(image_name)
         task = self.get_task(name, ctx=ctx)
         ctr_def = self.get_container_definition(task, name)
-        ctr_def['image'] = img_uri
+        if image_name:
+            img_uri = self.client.get_module('image').image_name_to_uri(image_name)
+            ctr_def['image'] = img_uri
         if cpu is not None:
             ctr_def['cpu'] = int(cpu)
         if memory is not None:

@@ -7,6 +7,8 @@ the cost.
 
 ## Requirements:
 
+Please install the following requirements prior to installing Fuku:
+
  * Python 3.6
 
  * ssh

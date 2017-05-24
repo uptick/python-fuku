@@ -343,13 +343,14 @@ class EcsService(Service):
         # p.add_argument('--mode', '-m', default='', choices=['global', ''], help='placement mode')
         p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
         p.add_argument('--min-healthy', default=50, help='minimum healthy tasks (%%)')
+        p.add_argument('--max-healthy', default=200, help='maximum healthy tasks (%%)')
         p.set_defaults(service_handler=self.handle_make)
 
         p = subp.add_parser('up', help='update a service')
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
-        p.add_argument('--min-healthy', help='minimum healthy tasks (%%)')
-        p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
+        # p.add_argument('--min-healthy', help='minimum healthy tasks (%%)')
+        # p.add_argument('--max-healthy', default=200, help='maximum healthy tasks (%%)')
         p.set_defaults(service_handler=self.handle_update)
 
         p = subp.add_parser('scale', help='scale a service')
@@ -391,9 +392,10 @@ class EcsService(Service):
                 print(svc)
 
     def handle_make(self, args):
-        self.make(args.task, args.replicas, args.expose, min_healthy=args.min_healthy, placement=args.placement)
+        self.make(args.task, args.replicas, args.expose, min_healthy=args.min_healthy,
+                  max_healthy=args.max_healthy, placement=args.placement)
 
-    def make(self, task_name, replicas=None, expose=False, mode=None, min_healthy=50, placement=None):
+    def make(self, task_name, replicas=None, expose=False, mode=None, min_healthy=50, max_healthy=200, placement=None):
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         task_mod = self.client.get_module('task')
@@ -418,7 +420,7 @@ class EcsService(Service):
             'taskDefinition': f'{task["family"]}:{task["revision"]}',
             'desiredCount': int(replicas) if replicas is not None else 1,
             'deploymentConfiguration': {
-                'maximumPercent': 200,
+                'maximumPercent': int(max_healthy),
                 'minimumHealthyPercent': int(min_healthy)
             },
             'placementStrategy': [{
@@ -474,17 +476,6 @@ class EcsService(Service):
             'service': f'fuku-{ctx["app"]}-{task_name}',
             'taskDefinition': f'{task["family"]}:{task["revision"]}',
         }
-        # if mode == 'global':
-        #     kwargs['placementConstraints'] = {
-        #         'type': 'distinctInstance'
-        #     }
-        if placement:
-            attr = list(placement.keys())[0]
-            val = list(placement.values())[0]
-            kwargs['placementConstraints'] = {
-                'type': 'memberOf',
-                'expression': f'attribute:{attr} == {val}'
-            }
         if replicas:
             kwargs['desiredCount'] = int(replicas) if replicas is not None else 1
         ecs_cli.update_service(**kwargs)
