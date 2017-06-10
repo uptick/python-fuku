@@ -42,7 +42,7 @@ class Service(Module):
         p.set_defaults(service_handler=self.handle_scale)
 
         p = subp.add_parser('redeploy', help='redeploy all')
-        p.add_argument('task', metavar='TASK', nargs='?', help='task name')
+        p.add_argument('tasks', metavar='TASKS', nargs='*', help='task name')
         p.set_defaults(service_handler=self.handle_redeploy)
 
         p = subp.add_parser('rm', help='remove a service')
@@ -253,14 +253,15 @@ class Service(Module):
         )
 
     def handle_redeploy(self, args):
-        self.redeploy(args.task)
+        self.redeploy(args.tasks)
 
-    def redeploy(self, task_name):
-        if not task_name:
+    def redeploy(self, task_names):
+        if not task_names:
             for svc in self.iter_services():
                 self.update(svc)
         else:
-            self.update(task_name)
+            for tn in task_names:
+                self.update(tn)
 
     def get_task(self, name, escape=True):
         task_mod = self.client.get_module('task')
@@ -359,10 +360,10 @@ class EcsService(Service):
         p.set_defaults(service_handler=self.handle_scale)
 
         p = subp.add_parser('redeploy', help='redeploy all')
-        p.add_argument('task', metavar='TASK', nargs='?', help='task name')
+        p.add_argument('tasks', metavar='TASKS', nargs='*', help='task name')
         p.set_defaults(service_handler=self.handle_redeploy)
 
-        p = subp.add_parser('wait', help='redeploy all')
+        p = subp.add_parser('wait', help='wait for deployment')
         p.add_argument('tasks', metavar='TASK', nargs='*', help='task name')
         p.add_argument('--stable', '-s', action='store_true', help='wait for stable services')
         p.set_defaults(service_handler=self.handle_wait)

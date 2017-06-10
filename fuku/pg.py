@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime, timedelta
 
 from .module import Module
 from .db import get_rc_path
@@ -61,6 +62,15 @@ class Pg(Module):
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.add_argument('input', metavar='INPUT', help='database dump file')
         p.set_defaults(pg_handler=self.handle_restore)
+
+        p = subp.add_parser('rollback', help='rollback a database')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.add_argument('time', metavar='TIME', help='rollback time')
+        p.set_defaults(pg_handler=self.handle_rollback)
+
+        p = subp.add_parser('backup', help='backup a database to S3')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.set_defaults(pg_handler=self.handle_backup)
 
     def handle_list(self, args):
         self.list(args.name)
@@ -286,6 +296,53 @@ class Pg(Module):
             capture=False,
             env={'PGPASSFILE': path}
         )
+
+    def handle_rollback(self, args):
+        self.rollback(args.dbname, args.time)
+
+    def rollback(self, db_name, time_str):
+        ctx = self.get_context()
+        inst_name = ctx['dbinstance']
+        db_id, path = self.get_db_creds(db_name)
+        endpoint = self.get_endpoint(ctx['dbinstance'])
+        rds_cli = self.get_client('rds')
+        m = re.match(r'(\d+):(\d+):(\d+)', time_str)
+        if not m:
+            self.error('invalid time-ago string')
+        time = datetime.utcnow() - timedelta(days=m.groups[1], minutes=m.groups[2], seconds=m.groups[3])
+        rds_cli.restore_db_instance_to_point_in_time(
+            SourceDBInstanceIdentifier=db_id,
+            TargetDBInstanceIdentifier=f'{db_id}_rollback',
+            RestoreTime=time
+        )
+
+    def handle_backup(self, args):
+        self.backup(args.dbname)
+
+    def backup(self, db_name):
+        ctx = self.get_context()
+        db_id, path = self.get_db_creds(db_name)
+        endpoint = self.get_endpoint(ctx['dbinstance'])
+        cmd = 'pg_dump -Fc -x -O -h {} -p {} -U {} -d {}'.format(
+            endpoint['Address'],
+            endpoint['Port'],
+            db_id,
+            db_id
+        )
+        key = str(datetime.now()).replace(' ', '-')
+        cmd += ' | aws s3 cp - s3://{}/fuku/{}/{}/{}.dump --profile {}'.format(
+            ctx['bucket'],
+            ctx['dbinstance'],
+            db_name,
+            key,
+            ctx['profile']
+        )
+        self.run(
+            cmd,
+            capture=False,
+            env={'PGPASSFILE': path}
+        )
+        print(f'backed up as "{key}"')
 
     def get_instance_id(self, instance):
         ctx = self.get_context()
