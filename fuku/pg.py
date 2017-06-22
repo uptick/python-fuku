@@ -72,6 +72,15 @@ class Pg(Module):
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.set_defaults(pg_handler=self.handle_backup)
 
+        p = subp.add_parser('backup', help='backup a database to S3')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.set_defaults(pg_handler=self.handle_backup)
+
+        p = subp.add_parser('share', help='share a backed up database')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.add_argument('key', metavar='KEY', help='backup key')
+        p.set_defaults(pg_handler=self.handle_share)
+
     def handle_list(self, args):
         self.list(args.name)
 
@@ -330,7 +339,7 @@ class Pg(Module):
             db_id
         )
         key = str(datetime.now()).replace(' ', '-')
-        cmd += ' | aws s3 cp - s3://{}/fuku/{}/{}/{}.dump --profile {}'.format(
+        cmd += ' | aws s3 cp - s3://{}/backups/{}/{}/{}.dump --profile {}'.format(
             ctx['bucket'],
             ctx['dbinstance'],
             db_name,
@@ -343,6 +352,27 @@ class Pg(Module):
             env={'PGPASSFILE': path}
         )
         print(f'backed up as "{key}"')
+
+    def handle_share(self, args):
+        self.share(args.dbname, args.key)
+
+    def share(self, db_name, key):
+        ctx = self.get_context()
+        db_id, path = self.get_db_creds(db_name)
+        endpoint = self.get_endpoint(ctx['dbinstance'])
+        cmd = 'aws s3 presign s3://{}/backups/{}/{}/{}.dump --profile {}'.format(
+            ctx['bucket'],
+            ctx['dbinstance'],
+            db_name,
+            key,
+            ctx['profile']
+        )
+        r = self.run(
+            cmd,
+            capture=True,
+            env={'PGPASSFILE': path}
+        )
+        print(r)
 
     def get_instance_id(self, instance):
         ctx = self.get_context()
