@@ -72,10 +72,6 @@ class Pg(Module):
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.set_defaults(pg_handler=self.handle_backup)
 
-        p = subp.add_parser('backup', help='backup a database to S3')
-        p.add_argument('dbname', metavar='DBNAME', help='DB name')
-        p.set_defaults(pg_handler=self.handle_backup)
-
         p = subp.add_parser('share', help='share a backed up database')
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.add_argument('key', metavar='KEY', help='backup key')
