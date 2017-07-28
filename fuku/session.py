@@ -33,6 +33,9 @@ class Session(Module):
         self.store[args.name] = cache
 
     def handle_load(self, args):
+        if args.name not in self.store.keys():
+            print(f'Session {args.name} not found')
+
         cache = self.store.get(args.name, {})
         for mod in self.client.modules:
             if mod.name == 'session':
@@ -46,6 +49,6 @@ class Session(Module):
     def handle_show(self, args):
         for mod in self.client.modules:
             cache = mod.save()
-            if cache:
+            if cache and mod.name not in {'session'}:
                 print('{}:'.format(mod.name))
                 print('  {}'.format(pprint.pformat(cache, indent=3)))
