@@ -1,5 +1,6 @@
-import os, sys
-from setuptools import setup, find_packages
+import os
+
+from setuptools import find_packages, setup
 
 version = '0.0.18'
 
@@ -13,7 +14,7 @@ setup(
     url='https://github.com/ABASystems/python-fuku',
     description='Easier Docker based deployments to AWS.',
     long_description=open(os.path.join(os.path.dirname(__file__), 'README.md')).read(),
-    classifiers = [
+    classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: BSD License',
