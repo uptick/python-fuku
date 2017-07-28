@@ -43,6 +43,9 @@ class EcsRedis(Redis):
     def add_arguments(self, parser):
         subp = parser.add_subparsers(help='redis help')
 
+        p = subp.add_parser('ls')
+        p.set_defaults(redis_handler=self.handle_list)
+
         p = subp.add_parser('mk', help='make a redis instance')
         p.add_argument('name', metavar='NAME', help='instance name')
         p.set_defaults(redis_handler=self.handle_make)
@@ -109,3 +112,10 @@ class EcsRedis(Redis):
             ShowCacheNodeInfo=True
         )['CacheClusters'][0]['CacheNodes'][0]['Endpoint']
         return f'redis://{ep["Address"]}:{ep["Port"]}'
+
+    def handle_list(self, args):
+        ec_cli = self.get_boto_client('elasticache')
+        data = ec_cli.describe_cache_clusters()
+        for cache in data['CacheClusters']:
+            name = cache['CacheClusterId']
+            print(name)
