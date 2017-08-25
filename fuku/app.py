@@ -1,8 +1,8 @@
 import os
 import stat
 
-from .module import Module
 from .db import get_rc_path
+from .module import Module
 from .utils import entity_already_exists
 
 
@@ -37,6 +37,7 @@ class App(Module):
 
         p = subp.add_parser('expose', help='expose to internet')
         p.add_argument('domain', metavar='DOMAIN', help='domain name')
+        p.add_argument('load_balancer_index', metavar='LOAD_BALANCER_INDEX', help='load balancer index')
         p.set_defaults(app_handler=self.handle_expose)
 
 
@@ -77,17 +78,19 @@ class App(Module):
         node_mod.mgr_run(full_cmd, tty=True)
 
     def handle_expose(self, args):
-        self.expose(args.domain)
+        self.expose(args.domain, args.load_balancer_index)
 
-    def expose(self, domain):
+    def expose(self, domain, load_balancer_index):
         cluster_mod = self.get_module('cluster')
         alb_cli = self.get_boto_client('elbv2')
         tg_arn = self.get_target_group_arn()
-        for listener in cluster_mod.iter_listeners():
+        for listener in cluster_mod.iter_listeners(index=load_balancer_index):
             rules = alb_cli.describe_rules(
                 ListenerArn=listener['ListenerArn']
             )['Rules']
-            priority = max(int(r['Priority']) for r in rules if r['Priority'] != 'default') + 1
+
+            rule_priorities = [int(r['Priority']) for r in rules if r['Priority'] != 'default']
+            priority = (max(rule_priorities) + 1) if rule_priorities else 1
             alb_cli.create_rule(
                 ListenerArn=listener['ListenerArn'],
                 Conditions=[

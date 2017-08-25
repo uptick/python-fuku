@@ -1,15 +1,14 @@
-import os
-import re
 import json
-import stat
+import os
 import random
+import re
+import stat
 
 import boto3
 
-from .module import Module
-from .utils import entity_already_exists, EntityAlreadyExists
 from .db import get_rc_path
-
+from .module import Module
+from .utils import EntityAlreadyExists, entity_already_exists
 
 ARN_PROG = re.compile(r'[^/]*/fuku-(.+)')
 
@@ -396,7 +395,7 @@ class Cluster(Module):
             name = self.get_context()['cluster']
         if alb_cli is None:
             alb_cli = self.get_boto_client('elbv2')
-        alb_arn = self.get_alb_arn(name)
+        alb_arn = self.get_alb_arn(name, index=index)
         listeners = alb_cli.describe_listeners(
             LoadBalancerArn=alb_arn,
         )['Listeners']
