@@ -48,6 +48,7 @@ class EcsRedis(Redis):
 
         p = subp.add_parser('mk', help='make a redis instance')
         p.add_argument('name', metavar='NAME', help='instance name')
+        p.add_argument('--group', metavar='GROUP', help='subnet group name')
         p.set_defaults(redis_handler=self.handle_make)
 
         p = subp.add_parser('connect')
@@ -56,18 +57,26 @@ class EcsRedis(Redis):
         p.set_defaults(redis_handler=self.handle_connect)
 
     def handle_make(self, args):
-        self.make(args.name)
+        self.make(args.name, args.group)
 
-    def make(self, name):
+    def make(self, name, group):
         ctx = self.get_context()
-        inst_id = self.get_id(name)
+        inst_id = self.get_id(name, group)
         sg_id = self.client.get_module('cluster').get_security_group_id()
         ec_cli = self.get_boto_client('elasticache')
-        ec_cli.create_cache_subnet_group(
-            CacheSubnetGroupName=inst_id,
-            CacheSubnetGroupDescription=f'Subnet group for {inst_id}',
-            SubnetIds=[sn.id for sn in self.get_module('cluster').iter_private_subnets(ctx['cluster'])]
-        )
+
+        try:
+            ec_cli.describe_cache_subnet_groups(CacheSubnetGroupName=inst_id)
+        except:
+            ec_cli.create_cache_subnet_group(
+                CacheSubnetGroupName=inst_id,
+                CacheSubnetGroupDescription=f'Subnet group for {inst_id}',
+                SubnetIds=[
+                    sn.id for sn in
+                    self.get_module('cluster').iter_private_subnets(ctx['cluster'])
+                ]
+            )
+
         ec_cli.create_cache_cluster(
             CacheClusterId=name,
             NumCacheNodes=1,
@@ -101,8 +110,10 @@ class EcsRedis(Redis):
         }
         task_mod.env_set(target, env)
 
-    def get_id(self, name):
+    def get_id(self, name, group):
         ctx = self.get_context()
+        if group:
+            return f'fuku-{ctx["cluster"]}-{group}'
         return f'fuku-{ctx["cluster"]}-{ctx["app"]}-{name}'
 
     def get_url(self, name):
