@@ -144,7 +144,27 @@ class Pg(Module):
         self.select(name)
 
     def handle_db_list(self, args):
-        pass
+        self.db_list()
+
+    def db_list(self):
+        ctx = self.get_context()
+        inst_name = ctx['dbinstance']
+        path = os.path.join(self.get_rc_path(), f'{inst_name}.pgpass')
+        endpoint = self.get_endpoint(inst_name)
+        cmd = 'psql -h {} -p {} -U {} -d {}'.format(
+            endpoint['Address'],
+            endpoint['Port'],
+            ctx['dbinstance'],
+            'postgres'
+        )
+        sql = 'SELECT datname FROM pg_database WHERE datistemplate = false;'
+        cmd = f'{cmd} -c "{sql}"'
+        output = self.run(
+            cmd,
+            capture=True,
+            env={'PGPASSFILE': path}
+        )
+        print(output)
 
     def handle_db_make(self, args):
         self.db_make(args.dbname)

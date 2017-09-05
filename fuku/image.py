@@ -134,7 +134,7 @@ class Image(Module):
         # TODO: Should really be using the `get_authorization_token` thingo.
         if ctx is None:
             ctx = self.get_context()
-        data = self.run(f'aws --profile={ctx["profile"]} --region={ctx["region"]} ecr get-login --no-include-email')
+        data = self.run(f'aws --profile={ctx["profile"]} --region={ctx["region"]} ecr get-login')
         self.run(data)
 
     # def create_repository(self, repo):

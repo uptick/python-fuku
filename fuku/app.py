@@ -45,8 +45,12 @@ class App(Module):
         self.list()
 
     def list(self):
+        for app in self.iter_apps():
+            print(app)
+
+    def iter_apps(self):
         for gr in self.iter_groups():
-            print(gr.group_name[5:])
+            yield gr.group_name[5:]
 
     def handle_make(self, args):
         self.make(args.name)

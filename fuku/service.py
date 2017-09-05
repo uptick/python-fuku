@@ -350,6 +350,7 @@ class EcsService(Service):
         p = subp.add_parser('up', help='update a service')
         p.add_argument('task', metavar='TASK', help='task name')
         p.add_argument('--replicas', '-r', help='number of replicas')
+        p.add_argument('--placement', '-p', action=StoreKeyValuePair, nargs='*', help='set placement')
         # p.add_argument('--min-healthy', help='minimum healthy tasks (%%)')
         # p.add_argument('--max-healthy', default=200, help='maximum healthy tasks (%%)')
         p.set_defaults(service_handler=self.handle_update)
@@ -379,18 +380,31 @@ class EcsService(Service):
 
     def list(self, task_name):
         if task_name:
-            ecs = self.get_boto_client('ecs')
-            ctx = self.get_context()
-            data = ecs.describe_services(
-                cluster=f'fuku-{ctx["cluster"]}',
-                services=[
-                    f'fuku-{ctx["app"]}-{task_name}'
-                ]
-            )['services'][0]
+            data = self.describe_service(task_name)
+            # ecs = self.get_boto_client('ecs')
+            # ctx = self.get_context()
+            # data = ecs.describe_services(
+            #     cluster=f'fuku-{ctx["cluster"]}',
+            #     services=[
+            #         f'fuku-{ctx["app"]}-{task_name}'
+            #     ]
+            # )['services'][0]
             print(json.dumps(data, default=json_serial, indent=2))
         else:
             for svc in self.iter_services(task_name):
                 print(svc)
+
+    def describe_service(self,task_name,  app_name=None):
+        ecs = self.get_boto_client('ecs')
+        ctx = self.get_context()
+        app_name = ctx.get('app', app_name)
+        data = ecs.describe_services(
+            cluster=f'fuku-{ctx["cluster"]}',
+            services=[
+                f'fuku-{app_name}-{task_name}'
+            ]
+        )['services'][0]
+        return data
 
     def handle_make(self, args):
         self.make(args.task, args.replicas, args.expose, min_healthy=args.min_healthy,
@@ -533,17 +547,18 @@ class EcsService(Service):
             service=svc
         )
 
-    def iter_services(self, task_name=None):
+    def iter_services(self, task_name=None, app_name=None):
         ecs_cli = self.get_boto_client('ecs')
         paginator = ecs_cli.get_paginator('list_services')
         ctx = self.get_context()
         cluster = f'fuku-{ctx["cluster"]}'
         services = paginator.paginate(cluster=cluster)
+        app_name = ctx.get('app', app_name)
         for svcs in services:
             for s in svcs['serviceArns']:
                 ii = s.rfind('/')
                 _, app, name = s[ii + 1:].split('-')
-                if app == ctx['app']:
+                if app == app_name:
                     yield name
 
     def is_running(self, task_name):

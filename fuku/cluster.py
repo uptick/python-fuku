@@ -40,6 +40,9 @@ class Cluster(Module):
         p.add_argument('--pem', '-p', help='PEM file')
         p.set_defaults(cluster_handler=self.handle_update)
 
+        p = subp.add_parser('summary', help='summarize cluster contents')
+        p.set_defaults(cluster_handler=self.handle_summary)
+
     def handle_list(self, args):
         self.list(args.name)
 
@@ -106,6 +109,36 @@ class Cluster(Module):
         #         file.write(key)
         #     self.run(f'gpg -d {path}.gpg > {path}')
         #     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+
+    def handle_summary(self, args):
+        self.summary()
+
+    def summary(self):
+        ctx = self.get_context()
+        app_mod = self.get_module('app')
+        svc_mod = self.get_module('service')
+        for app in app_mod.iter_apps():
+            all_svcs = []
+            for svc in svc_mod.iter_services(app_name=app):
+                svc_data = svc_mod.describe_service(svc, app_name=app)
+                all_svcs.append((svc, svc_data))
+            print(f'{app}')
+            all_svcs = sorted(all_svcs, key=lambda x: x[0])
+            try:
+                max_w = max(len(s[0]) for s in all_svcs)
+            except ValueError:
+                max_w = None
+            for svc, data in all_svcs:
+                if max_w:
+                    w = max_w - len(svc)
+                else:
+                    w = 0
+                try:
+                    des_cnt = data['deployments'][0]['desiredCount']
+                    run_cnt = data['deployments'][0]['runningCount']
+                    print(f'  {svc}{w * " "}  {des_cnt}  {run_cnt}')
+                except:
+                    pass
 
     def iter_clusters(self):
         ecs = self.get_boto_client('ecs')
