@@ -213,7 +213,7 @@ class Module(object):
 
     def gets3(self, key):
         try:
-            ctx = self.get_context()
+            ctx = self.get_context(use_context=False)
             s3 = self.get_boto_client('s3')
             data = s3.get_object(
                 Bucket=ctx['bucket'],
@@ -222,6 +222,16 @@ class Module(object):
             return data
         except:
             return None
+
+    def iters3(self, prefix):
+        try:
+            ctx = self.get_context(use_context=False)
+            s3 = self.get_boto_resource('s3')
+            bucket = s3.Bucket(ctx['bucket'])
+            for obj in bucket.objects.filter(Prefix=prefix):
+                yield obj
+        except:
+            pass
 
     def encrypt_file(self, path, purpose='an unknown resource'):
         print(f'\nPlease enter a password to secure {purpose}.')

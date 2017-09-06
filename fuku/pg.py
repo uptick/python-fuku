@@ -1,3 +1,4 @@
+import uuid
 import os
 import json
 from datetime import datetime, timedelta
@@ -70,12 +71,16 @@ class Pg(Module):
 
         p = subp.add_parser('backup', help='backup a database to S3')
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.add_argument('--list', action='store_true', help='list backups')
         p.set_defaults(pg_handler=self.handle_backup)
 
         p = subp.add_parser('share', help='share a backed up database')
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.add_argument('key', metavar='KEY', help='backup key')
         p.set_defaults(pg_handler=self.handle_share)
+
+        p = subp.add_parser('summary', help='summarize databases')
+        p.set_defaults(pg_handler=self.handle_summary)
 
     def handle_list(self, args):
         self.list(args.name)
@@ -93,12 +98,18 @@ class Pg(Module):
             )
             print(json.dumps(data, indent=2))
         else:
-            data = rds.describe_db_instances()
-            pre = self.get_instance_id('')
-            for db in data['DBInstances']:
-                name = db['DBInstanceIdentifier']
-                if name.startswith(pre):
-                    print(name[len(pre):])
+            for dbinst in self.iter_db_instances():
+                yield dbinst
+
+    def iter_db_instances(self):
+        rds = self.get_boto_client('rds')
+        data = rds.describe_db_instances()
+        ctx = self.get_context(use_context=False)
+        pre = f'fuku-{ctx["cluster"]}-'
+        for db in data['DBInstances']:
+            name = db['DBInstanceIdentifier']
+            if name.startswith(pre):
+                yield name[len(pre):]
 
     def handle_make(self, args):
         self.make(args.name, args.backup, args.storage)
@@ -147,14 +158,22 @@ class Pg(Module):
         self.db_list()
 
     def db_list(self):
-        ctx = self.get_context()
-        inst_name = ctx['dbinstance']
-        path = os.path.join(self.get_rc_path(), f'{inst_name}.pgpass')
+        for db in self.iter_dbs():
+            print(db)
+
+    def iter_dbs(self, inst_name=None):
+        if inst_name is None:
+            ctx = self.get_context()
+            inst_name = ctx['dbinstance']
+        else:
+            ctx = self.get_context(use_context=False)
+        path = os.path.join(ctx['cluster'], f'{inst_name}.pgpass')
+        path = self.get_secure_file(path)
         endpoint = self.get_endpoint(inst_name)
         cmd = 'psql -h {} -p {} -U {} -d {}'.format(
             endpoint['Address'],
             endpoint['Port'],
-            ctx['dbinstance'],
+            inst_name,
             'postgres'
         )
         sql = 'SELECT datname FROM pg_database WHERE datistemplate = false;'
@@ -164,7 +183,9 @@ class Pg(Module):
             capture=True,
             env={'PGPASSFILE': path}
         )
-        print(output)
+        for db in output.split()[4:-2]:
+            i = db.find('_')
+            yield db[i + 1:]
 
     def handle_db_make(self, args):
         self.db_make(args.dbname)
@@ -245,11 +266,11 @@ class Pg(Module):
             self.store['selected'] = name
         else:
             sel = self.store.get('selected', None)
-            if sel:
-                self.use_context = False
-                ctx = self.get_context()
-                pgpass_path = f'{ctx["cluster"]}/{sel}.pgpass'
-                self.clear_secure_file(pgpass_path)
+            # if sel:
+            #     self.use_context = False
+            #     ctx = self.get_context()
+            #     pgpass_path = f'{ctx["cluster"]}/{sel}.pgpass'
+            #     self.clear_secure_file(pgpass_path)
             try:
                 del self.store['selected']
             except KeyError:
@@ -342,10 +363,19 @@ class Pg(Module):
         )
 
     def handle_backup(self, args):
-        self.backup(args.dbname)
+        self.backup(args.dbname, args.list)
 
-    def backup(self, db_name):
+    def backup(self, db_name, list):
         ctx = self.get_context()
+        if list:
+            pre = 'backups/{}/{}/'.format(
+                ctx['dbinstance'],
+                db_name,
+            )
+            for obj in self.iters3(pre):
+                key = obj.key[obj.key.rfind('/') + 1:obj.key.rfind('.')]
+                print(f'{key}  ({obj.last_modified})')
+            return
         db_id, path = self.get_db_creds(db_name)
         endpoint = self.get_endpoint(ctx['dbinstance'])
         cmd = 'pg_dump -Fc -x -O -h {} -p {} -U {} -d {}'.format(
@@ -354,7 +384,20 @@ class Pg(Module):
             db_id,
             db_id
         )
-        key = str(datetime.now()).replace(' ', '-')
+        # key = str(datetime.now()).replace(' ', '-')
+        while 1:
+            key = str(uuid.uuid4()).replace('-', '')[:8]
+            s3 = self.get_boto_resource('s3')
+            bucket_key = 'backups/{}/{}/{}.dump'.format(
+                ctx['dbinstance'],
+                db_name,
+                key
+            )
+            try:
+                s3.Object(ctx['bucket'], bucket_key)
+                break
+            except botocore.exceptions.ClientError as e:
+                pass
         cmd += ' | aws s3 cp - s3://{}/backups/{}/{}/{}.dump --profile {}'.format(
             ctx['bucket'],
             ctx['dbinstance'],
@@ -390,8 +433,19 @@ class Pg(Module):
         )
         print(r)
 
+    def handle_summary(self, args):
+        self.summary()
+
+    def summary(self):
+        print('')
+        for dbinst in self.iter_db_instances():
+            print(dbinst)
+            for db in self.iter_dbs(dbinst):
+                print(f'  {db}')
+            print('')
+
     def get_instance_id(self, instance):
-        ctx = self.get_context()
+        ctx = self.get_context(use_context=False)
         return f'fuku-{ctx["cluster"]}-{instance}'
 
     def get_db_id(self, name):
@@ -399,11 +453,10 @@ class Pg(Module):
         return f'{ctx["app"]}_{name}'
 
     def get_rc_path(self):
-        ctx = self.get_context()
+        ctx = self.get_context(use_context=False)
         return os.path.join(get_rc_path(), ctx['cluster'])
 
     def get_endpoint(self, name):
-        ctx = self.get_context()
         inst_id = self.get_instance_id(name)
         rds = self.get_boto_client('rds')
         try:
