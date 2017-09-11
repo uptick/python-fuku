@@ -99,7 +99,7 @@ class Pg(Module):
             print(json.dumps(data, indent=2))
         else:
             for dbinst in self.iter_db_instances():
-                yield dbinst
+                print(dbinst)
 
     def iter_db_instances(self):
         rds = self.get_boto_client('rds')
