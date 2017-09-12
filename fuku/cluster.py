@@ -68,7 +68,7 @@ class Cluster(Module):
         self.create_key_pair(name, ec2=ec2)
         sg_id = self.create_security_group(name, vpc, ec2=ec2)
         self.create_log_group(name)
-        self.create_alb(name, vpc_id, sg_id)
+        self.create_alb(name, vpc.id, sg_id)
         self.select(name)
 
     def handle_update(self, args):
@@ -550,7 +550,7 @@ class Cluster(Module):
                     }]
                 }]
             )
-        return id
+        return sg_id
 
     def get_security_group_id(self, name=None):
         name = name or self.store_get('selected')
