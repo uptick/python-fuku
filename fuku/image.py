@@ -60,7 +60,8 @@ class Image(Module):
         if repo[0] == '/':
             x = self.store.setdefault('images', {})
         else:
-            x = self.store.setdefault('images', {}).setdefault(app, {})
+            ctx = self.get_context()
+            x = self.store.setdefault('images', {}).setdefault(ctx['app'], {})
         x = x.setdefault(repo, {})
         if not local:
             local = x.get('local', None)

@@ -189,7 +189,10 @@ class Cluster(Module):
                 CidrBlock='10.0.0.0/16'
             )['Vpc']['VpcId']
             vpc = ec2.Vpc(id)
-            vpc.modify_attribute(EnableDnsSupport={'Value': True})
+            vpc.modify_attribute(
+                EnableDnsSupport={'Value': True},
+                EnableDnsHostnames={'Value': True}
+            )
             vpc.create_tags(
                 Tags=[
                     {
