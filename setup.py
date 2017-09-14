@@ -2,7 +2,7 @@ import os
 
 from setuptools import find_packages, setup
 
-version = '0.0.18'
+version = '0.0.19'
 
 setup(
     name='fuku',
