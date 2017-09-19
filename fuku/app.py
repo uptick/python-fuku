@@ -66,10 +66,12 @@ class App(Module):
         self.select(args.name)
 
     def select(self, name):
-        if name and name not in [g.group_name[5:] for g in self.iter_groups()]:
-            self.error(f'no app "{name}"')
-        self.store_set('selected', name)
-        self.clear_parent_selections()
+        for gr in self.iter_groups():
+            if name and gr.name.endswith('-' + name):
+                self.store_set('selected', name)
+                self.clear_parent_selections()
+                return
+        self.error(f'no app "{name}"')
 
     def handle_run(self, args):
         self.run(args.image, args.command)
@@ -121,19 +123,18 @@ class App(Module):
 
     def create_group(self, name):
         ctx = self.get_context()
+        cluster = ctx['cluster']
         iam = self.get_boto_client('iam')
         with entity_already_exists():
             iam.create_group(
-                Path=f'/fuku/{ctx["cluster"]}/{name}/',
-                GroupName=f'fuku-{name}'
+                Path=f'/fuku/{cluster}/{name}/',
+                GroupName=f'fuku-{cluster}-{name}'
             )
 
     def delete_app_group(self, name):
-        self.run(
-            '$aws iam delete-group'
-            ' --group-name fuku-$app',
-            {'app': name}
-        )
+        ctx = self.get_context()
+        cluster = ctx['cluster']
+        assert 0, 'todo'
 
     def make_task(self, name):
         ctx = self.get_context()
