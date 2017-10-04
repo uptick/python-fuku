@@ -36,8 +36,9 @@ setup(
         'setuptools',
         'six',
         'boto3',
-        'fabric3'
+        'fabric3',
         'colorama',
+        'pprint',
     ],
     scripts=[
         'fuku/scripts/fuku',
