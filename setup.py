@@ -37,6 +37,7 @@ setup(
         'six',
         'boto3',
         'fabric3'
+        'colorama',
     ],
     scripts=[
         'fuku/scripts/fuku',
