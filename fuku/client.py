@@ -1,4 +1,7 @@
 import argparse
+import logging
+
+from colorama import Fore
 
 from .db import get_default_db, save_db
 
@@ -9,6 +12,11 @@ class Client(object):
     def __init__(self):
         self.modules = []
         self.parser = argparse.ArgumentParser()
+        self.parser.add_argument(
+            f'--log',
+            help='Log level. Default: WARNING',
+            choices=('CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'),
+        )
 
         # global arguments
         for arg, verbose_name in self.global_arguments:
@@ -60,6 +68,12 @@ class Client(object):
     def entry(self):
         self.add_arguments()
         self.args = self.parser.parse_args()
+
+        # set the logging log level based on parsed arguments
+        loglevel = vars(self.args).get('log') or 'WARNING'
+        logformat = f'{Fore.CYAN}%(levelname)s:{Fore.GREEN}%(name)s:{Fore.RESET}%(message)s'
+        logging.basicConfig(level=loglevel, format=logformat)
+
         try:
             handler = self.args.handler
         except AttributeError:
