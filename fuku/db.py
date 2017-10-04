@@ -1,6 +1,5 @@
-import os
 import json
-# from tinydb import TinyDB
+import os
 
 
 def get_rc_path():

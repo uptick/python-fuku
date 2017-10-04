@@ -1,11 +1,11 @@
-import uuid
-import os
 import json
+import os
+import uuid
 from datetime import datetime, timedelta
 
-from .module import Module
 from .db import get_rc_path
-from .utils import gen_secret, gen_name
+from .module import Module
+from .utils import gen_name, gen_secret
 
 
 class Pg(Module):
@@ -222,7 +222,7 @@ class Pg(Module):
     #     self.cache(args.name, args.password)
 
     def cache(self, inst_name, db_name, password):
-        ctx = self.get_context() 
+        ctx = self.get_context()
         data = self.get_endpoint(inst_name)
         path = os.path.join(self.get_rc_path(), f'{inst_name}.pgpass')
         try:
@@ -512,6 +512,9 @@ class Pg(Module):
         return sel
 
     def get_my_context(self):
+        if self.client.args.pg:
+            return {'dbinstance': self.client.args.pg}
+
         sel = self.store_get('selected')
         if not sel:
             self.error('no DB currently selected')

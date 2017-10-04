@@ -2,12 +2,16 @@ import json
 
 from .module import Module
 from .utils import (
-    StoreKeyValuePair, StorePortPair,
-    env_to_dict, dict_to_env,
-    ports_to_dict, dict_to_ports,
-    volumes_to_dict, dict_to_volumes,
-    mounts_to_dict, dict_to_mounts,
-    entity_already_exists
+    StoreKeyValuePair,
+    StorePortPair,
+    dict_to_env,
+    dict_to_mounts,
+    dict_to_ports,
+    dict_to_volumes,
+    env_to_dict,
+    mounts_to_dict,
+    ports_to_dict,
+    volumes_to_dict,
 )
 
 
@@ -260,7 +264,7 @@ class Task(Module):
 
     def ports_unset(self, name, values):
         app_task = self.get_app_task()
-        ctr_def = self.get_container_definition(task, name)
+        ctr_def = self.get_container_definition(app_task, name)
         ports = ports_to_dict(ctr_def['portMappings'])
         for p in values:
             try:
@@ -355,7 +359,6 @@ class Task(Module):
             except KeyError:
                 pass
         self.register_task(task)
-            
 
     def handle_prune(self, args):
         self.prune()

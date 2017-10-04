@@ -1,7 +1,3 @@
-import os
-import stat
-
-from .db import get_rc_path
 from .module import Module
 from .utils import entity_already_exists
 
@@ -39,7 +35,6 @@ class App(Module):
         p.add_argument('domain', metavar='DOMAIN', help='domain name')
         p.add_argument('load_balancer_index', metavar='LOAD_BALANCER_INDEX', help='load balancer index')
         p.set_defaults(app_handler=self.handle_expose)
-
 
     def handle_list(self, args):
         self.list()
@@ -161,6 +156,9 @@ class App(Module):
         ]))
 
     def get_my_context(self):
+        if self.client.args.app:
+            return {'app': self.client.args.app}
+
         sel = self.store_get('selected')
         if not sel:
             self.error('no app currently selected')
@@ -178,7 +176,7 @@ class EcsApp(App):
         ctx = self.get_context()
         vpc_id = self.get_module('cluster').get_vpc(ctx['cluster']).id
         alb_cli = self.get_boto_client('elbv2')
-        tg_arn = alb_cli.create_target_group(
+        alb_cli.create_target_group(
             Name=f'fuku-{ctx["cluster"]}-{name}',
             Protocol='HTTP',
             Port=80,
