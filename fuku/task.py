@@ -99,7 +99,6 @@ class Task(Module):
         p.set_defaults(task_handler=self.handle_prune)
 
     def handle_list(self, args):
-        print(args)
         self.list(args.name)
 
     def list(self, name):
