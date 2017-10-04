@@ -4,9 +4,19 @@ from .db import get_default_db, save_db
 
 
 class Client(object):
+    global_arguments = {('app', 'application'), ('pg', 'DB instance')}
+
     def __init__(self):
         self.modules = []
         self.parser = argparse.ArgumentParser()
+
+        # global arguments
+        for arg, verbose_name in self.global_arguments:
+            self.parser.add_argument(
+                f'--{arg}', metavar=arg.upper(),
+                help=f'Global {verbose_name} argument overwriting context'
+            )
+
         self.db = get_default_db()
 
     def add_module(self, module):
@@ -22,6 +32,7 @@ class Client(object):
 
     def add_arguments(self):
         subp = self.parser.add_subparsers()
+
         for mod in self.modules:
             modp = subp.add_parser(mod.name)
             mod.add_arguments(modp)

@@ -512,6 +512,9 @@ class Pg(Module):
         return sel
 
     def get_my_context(self):
+        if self.client.args.pg:
+            return {'dbinstance': self.client.args.pg}
+
         sel = self.store_get('selected')
         if not sel:
             self.error('no DB currently selected')

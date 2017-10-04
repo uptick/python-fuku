@@ -155,6 +155,9 @@ class App(Module):
         ]))
 
     def get_my_context(self):
+        if self.client.args.app:
+            return {'app': self.client.args.app}
+
         sel = self.store_get('selected')
         if not sel:
             self.error('no app currently selected')
