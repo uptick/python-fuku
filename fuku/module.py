@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import stat
 import sys
@@ -276,3 +277,7 @@ class Module(object):
 
     def escape(self, value):
         return value.replace('"', '\\"')
+
+    def get_logger(self):
+        logger = logging.getLogger(f'fuku.{self.name}')
+        return logger

@@ -156,14 +156,14 @@ class App(Module):
 
     def get_my_context(self):
         if self.client.args.app:
-            return {'app': self.client.args.app}
-
-        sel = self.store_get('selected')
-        if not sel:
-            self.error('no app currently selected')
-        return {
-            'app': sel
-        }
+            ctx = {'app': self.client.args.app}
+        else:
+            sel = self.store_get('selected')
+            if not sel:
+                self.error('no app currently selected')
+            ctx = {'app': sel}
+        self.get_logger().info(f'APP Context: {ctx}')
+        return ctx
 
 
 class EcsApp(App):
