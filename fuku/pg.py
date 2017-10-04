@@ -1,11 +1,14 @@
-import json
 import os
+import re
 import uuid
 from datetime import datetime, timedelta
+from pprint import pprint
+
+import botocore
 
 from .db import get_rc_path
 from .module import Module
-from .utils import gen_name, gen_secret
+from .utils import gen_secret
 
 
 class Pg(Module):
@@ -34,8 +37,10 @@ class Pg(Module):
 
         p = subp.add_parser('db', help='manage databases')
         ssp = p.add_subparsers()
+
         p = ssp.add_parser('ls')
         p.set_defaults(pg_handler=self.handle_db_list)
+
         p = ssp.add_parser('mk')
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
         p.set_defaults(pg_handler=self.handle_db_make)
@@ -51,7 +56,7 @@ class Pg(Module):
 
         p = subp.add_parser('psql')
         p.add_argument('--dbname', '-d', help='DB name')
-        p.add_argument('--command', '-c',  help='run SQL')
+        p.add_argument('--command', '-c', help='run SQL')
         p.set_defaults(pg_handler=self.handle_psql)
 
         p = subp.add_parser('dump', help='dump contents of database')
@@ -86,20 +91,18 @@ class Pg(Module):
         self.list(args.name)
 
     def list(self, name):
-        self.use_context = False
-        ctx = self.get_context()
         rds = self.get_boto_client('rds')
         if name:
             data = rds.describe_db_instances(
-                Filter=[{
-                    'Key': 'Name',
+                Filters=[{
+                    'Name': 'db-instance-id',
                     'Values': [self.get_instance_id(name)]
                 }]
             )
-            print(json.dumps(data, indent=2))
+            pprint(data['DBInstances'][0])
         else:
             for dbinst in self.iter_db_instances():
-                yield dbinst
+                print(dbinst)
 
     def iter_db_instances(self):
         rds = self.get_boto_client('rds')
@@ -127,7 +130,7 @@ class Pg(Module):
             DBSubnetGroupDescription=f'Subnet group for {inst_id}',
             SubnetIds=[sn.id for sn in self.get_module('cluster').iter_public_subnets(ctx['cluster'])]
         )
-        data = rds.create_db_instance(
+        rds.create_db_instance(
             DBName=db_id,
             DBInstanceIdentifier=inst_id,
             DBInstanceClass='db.t2.micro',
@@ -467,9 +470,10 @@ class Pg(Module):
             self.error(f'no database "{name}"')
 
     def get_instance(self, inst_name):
+        rds = self.get_boto_client('rds')
         return rds.describe_db_instances(
-            Filter=[{
-                'Key': 'Name',
+            Filters=[{
+                'Name': 'db-instance-id',
                 'Values': [self.get_instance_id(inst_name)]
             }]
         )
@@ -513,11 +517,12 @@ class Pg(Module):
 
     def get_my_context(self):
         if self.client.args.pg:
-            return {'dbinstance': self.client.args.pg}
+            ctx = {'dbinstance': self.client.args.pg}
+        else:
+            sel = self.store_get('selected')
+            if not sel:
+                self.error('no DB currently selected')
+            ctx = {'dbinstance': sel}
 
-        sel = self.store_get('selected')
-        if not sel:
-            self.error('no DB currently selected')
-        return {
-            'dbinstance': sel
-        }
+        self.get_logger().info(f'PG Context: {ctx}')
+        return ctx
