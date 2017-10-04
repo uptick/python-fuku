@@ -1,15 +1,15 @@
-import os
-import sys
 import json
+import os
 import stat
+import sys
 import tempfile
 from contextlib import contextmanager
 from string import Template
 
 import boto3
 
-from .runner import run
 from .db import get_rc_path
+from .runner import run
 
 
 class Module(object):
