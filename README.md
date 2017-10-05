@@ -115,3 +115,26 @@ To run a command:
 
 This attaches to a running container from the specified task, then
 runs the provided command.
+
+
+## Logging
+
+To control logs printed use the flag `--log`, it uses the available logging levels (CRITICAL, WARNING, INFO, DEBUG)
+
+ `fuku --log=DEBUG <command>`
+
+By default the logs are set to WARNING.
+
+
+## Running fuku in Sub-processes
+
+The default behaviour is to assume that one user is on a single app and/or DB instance at all time.
+
+However if you need to spawn multiple processes running commands on different app and/or DB instance,
+you can use the `--app` or `--db` flags.
+
+For example, we can run in parallel:
+
+  `fuku --app=first_app service wait bg; fuku --app=first_app service run bg "./manage.py migrate";`
+
+  `fuku --app=second_app service wait bg; fuku --app=second_app service run bg "./manage.py migrate";`
