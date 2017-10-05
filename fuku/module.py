@@ -4,6 +4,7 @@ import os
 import stat
 import sys
 import tempfile
+import unicodedata
 from contextlib import contextmanager
 from string import Template
 
@@ -28,16 +29,12 @@ class Module(object):
         pass
 
     def validate(self, name):
-        if '-' in name:
-            self.error(f'identifiers cannot contain dashes')
-        if '_' in name:
-            self.error(f'identifiers cannot contain underscores')
+        for char in {'-', '_', ' ', '/'}:
+            if char in name:
+                self.error(f'Invalid identifier in name: {unicodedata.name(char)}')
+
         if name == 'fuku':
             self.error('"fuku" is a reserved name')
-        if ' ' in name:
-            self.error('no whitespace in names allowed')
-        if '/' in name:
-            self.error('no slashes in names allowed')
 
     def get_context(self, ctx={}, use_context=True):
         for dep in self.client.iter_dependent_modules(self):
