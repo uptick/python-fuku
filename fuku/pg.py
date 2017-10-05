@@ -265,19 +265,8 @@ class Pg(Module):
             pgpass_path = f'{ctx["cluster"]}/{name}.pgpass'
             # self.exists(name)
             self.get_secure_file(pgpass_path)
-            # self.get_pgpass_file(name)
-            self.store['selected'] = name
-        else:
-            sel = self.store.get('selected', None)
-            # if sel:
-            #     self.use_context = False
-            #     ctx = self.get_context()
-            #     pgpass_path = f'{ctx["cluster"]}/{sel}.pgpass'
-            #     self.clear_secure_file(pgpass_path)
-            try:
-                del self.store['selected']
-            except KeyError:
-                pass
+
+        self.store_set('selected', name)
         self.clear_parent_selections()
 
     def handle_psql(self, args):
@@ -330,7 +319,6 @@ class Pg(Module):
 
     def restore(self, db_name, input):
         ctx = self.get_context()
-        inst_name = ctx['dbinstance']
         db_id, path = self.get_db_creds(db_name)
         # self.psql(command=f'DROP DATABASE {db_id}')
         # self.psql(command=f'CREATE DATABASE {db_id} OWNER {inst_name}')
@@ -350,10 +338,9 @@ class Pg(Module):
         self.rollback(args.dbname, args.time)
 
     def rollback(self, db_name, time_str):
-        ctx = self.get_context()
-        inst_name = ctx['dbinstance']
+        # ctx = self.get_context()
         db_id, path = self.get_db_creds(db_name)
-        endpoint = self.get_endpoint(ctx['dbinstance'])
+        # endpoint = self.get_endpoint(ctx['dbinstance'])
         rds_cli = self.get_client('rds')
         m = re.match(r'(\d+):(\d+):(\d+)', time_str)
         if not m:
@@ -421,7 +408,7 @@ class Pg(Module):
     def share(self, db_name, key):
         ctx = self.get_context()
         db_id, path = self.get_db_creds(db_name)
-        endpoint = self.get_endpoint(ctx['dbinstance'])
+        # endpoint = self.get_endpoint(ctx['dbinstance'])
         cmd = 'aws s3 presign s3://{}/backups/{}/{}/{}.dump --profile {}'.format(
             ctx['bucket'],
             ctx['dbinstance'],
@@ -524,5 +511,5 @@ class Pg(Module):
                 self.error('no DB currently selected')
             ctx = {'dbinstance': sel}
 
-        self.get_logger().info(f'PG Context: {ctx}')
+        self.get_logger().debug(f'PG Context: {ctx}')
         return ctx

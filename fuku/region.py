@@ -1,5 +1,3 @@
-import os
-
 from .module import Module
 
 
@@ -35,6 +33,7 @@ class Region(Module):
     def select(self, name):
         if name and name not in self.regions:
             self.error(f'no region "{name}"')
+
         self.store_set('selected', name)
         self.clear_parent_selections()
 

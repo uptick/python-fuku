@@ -130,8 +130,8 @@ class App(Module):
             )
 
     def delete_app_group(self, name):
-        ctx = self.get_context()
-        cluster = ctx['cluster']
+        # ctx = self.get_context()
+        #  cluster = ctx['cluster']
         assert 0, 'todo'
 
     def make_task(self, name):
@@ -166,7 +166,7 @@ class App(Module):
             if not sel:
                 self.error('no app currently selected')
             ctx = {'app': sel}
-        self.get_logger().info(f'APP Context: {ctx}')
+        self.get_logger().debug(f'APP Context: {ctx}')
         return ctx
 
 

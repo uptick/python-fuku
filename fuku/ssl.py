@@ -1,4 +1,6 @@
 from .module import Module
+
+
 # from .utils import dict_to_env, dict_to_ports
 
 
@@ -39,17 +41,17 @@ class SSL(Module):
             '443': '443'
         }
         task_mod.ports_set('ssl', ports)
-        volumes = {
-            'letsencrypt': {
-                'container': '/etc/letsencrypt'
-            },
-            'letsencrypt-backups': {
-                'container': '/var/lib/letsencrypt'
-            },
-            'dhparam-cache': {
-                'container': '/cache'
-            }
-        }
+        # volumes = {
+        #     'letsencrypt': {
+        #         'container': '/etc/letsencrypt'
+        #     },
+        #     'letsencrypt-backups': {
+        #         'container': '/var/lib/letsencrypt'
+        #     },
+        #     'dhparam-cache': {
+        #         'container': '/cache'
+        #     }
+        # }
         task_mod.volume_add('ssl', 'letsencrypt', '/etc/letsencrypt')
         task_mod.volume_add('ssl', 'letsencrypt-backups', '/var/lib/letsencrypt')
         task_mod.volume_add('ssl', 'dhparam-cache', '/cache')

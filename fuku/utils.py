@@ -1,6 +1,6 @@
 import argparse
-import string
 import random
+import string
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -130,7 +130,7 @@ def gen_secret(length=64):
 
 def gen_name(length=16):
     return ''.join(
-        random.SystemRandom().choice(string.ascii_uppercase) + 
+        random.SystemRandom().choice(string.ascii_uppercase) +
         random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(length - 1)
     )
 

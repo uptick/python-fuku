@@ -1,18 +1,15 @@
-import re
-import json
 import base64
+import json
+import re
 
 from .module import Module
-from .utils import (
-    json_serial,
-    StoreKeyValuePair
-)
+from .utils import StoreKeyValuePair, json_serial
 
 
 class Node(Module):
     dependencies = ['cluster']
     ami_map = {
-      # 'ap-southeast-2': 'ami-862211e5',  # docker enabled amazon
+        # 'ap-southeast-2': 'ami-862211e5',  # docker enabled amazon
         'ap-southeast-2': 'ami-e7878484',  # arch linux
     }
 
@@ -159,7 +156,6 @@ class Node(Module):
         self.init_swarm(args.name)
 
     def init_swarm(self, name):
-        ctx = self.get_context()
         inst = self.get_instance(name)
         ip = inst.private_ip_address
         resp = self.ssh_run(
@@ -323,7 +319,6 @@ class Node(Module):
         ctx = self.get_context()
         ecs = self.get_boto_client('ecs')
         paginator = ecs.get_paginator('list_container_instances')
-        cluster = self.client.get_selected('cluster')
         ec2inst = self.get_instance(name)
         instances = paginator.paginate(
             cluster=f'fuku-{ctx["cluster"]}',

@@ -1,5 +1,5 @@
-import re
 import json
+import re
 
 from .module import Module
 
@@ -292,7 +292,7 @@ class Machine(Module):
             if name:
                 if not self.exists(name):
                     self.error('unkown machine')
-                data = self.store.setdefault('machines', {}).setdefault(name, {})
+                self.store.setdefault('machines', {}).setdefault(name, {})
                 self.store['selected'] = name
             else:
                 try:

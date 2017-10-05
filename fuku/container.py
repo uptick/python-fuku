@@ -151,15 +151,6 @@ class Container(Module):
         elif args.copy:
             copy_tree(self.data_path('images/%s' % args.copy), './%s' % args.copy)
 
-    def get_image(self, name):
-        pass
-        # app = self.client.get_selected('app')
-        # ctrs = self.store.get('containers', {}).get(app['name'], {})
-        # try:
-        #     return ctrs[name]
-        # except KeyError:
-        #     self.error('unknown container')
-
     def login(self):
         data = self.run('$aws ecr get-login')
         self.run(data)
