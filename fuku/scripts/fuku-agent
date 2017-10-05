@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-import os
-import sys
-import json
 import argparse
+import json
+import os
 import subprocess
+import sys
 from string import Template
 
-import filelock
 import docker
+import filelock
 
 root = '.'
 lock_fn = os.path.join(root, 'fuku.lock')

@@ -1,14 +1,11 @@
-import re
 import os
-import sys
-from contextlib import contextmanager
+import re
 import subprocess
+from contextlib import contextmanager
 
-from fabric.operations import (
-    _prefix_env_vars, _prefix_commands,
-    _AttributeString
-)
-from fabric.state import env as _env, output, win32
+from fabric.operations import _AttributeString, _prefix_commands, _prefix_env_vars
+from fabric.state import env as _env
+from fabric.state import output, win32
 
 
 class CommandError(Exception):
@@ -112,6 +109,7 @@ def local(command, capture=False, shell=None, ignore_errors=False, env=None):
     # If we were capturing, this will be a string; otherwise it will be None.
     return out
 
+
 run = local
 
 
@@ -131,8 +129,7 @@ def already_exists(expr):
 #     fabrun(cmd)
 
 
-
-#from contextlib import contextmanager
+# from contextlib import contextmanager
 
 # # from fabric.operations import _run_command
 # from fabric.context_managers import (
@@ -148,7 +145,7 @@ def already_exists(expr):
 
 # env = {
 #     'use_shell': False,
-    
+
 # }
 
 

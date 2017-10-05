@@ -130,8 +130,8 @@ class App(Module):
             )
 
     def delete_app_group(self, name):
-        ctx = self.get_context()
-        cluster = ctx['cluster']
+        # ctx = self.get_context()
+        #  cluster = ctx['cluster']
         assert 0, 'todo'
 
     def make_task(self, name):

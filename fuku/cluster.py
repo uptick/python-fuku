@@ -1,10 +1,7 @@
-import json
 import os
 import random
 import re
 import stat
-
-import boto3
 
 from .db import get_rc_path
 from .module import Module
@@ -61,7 +58,7 @@ class Cluster(Module):
         nat_id = self.create_nat(name)
         self.create_route_tables(name, nat_id)
         ecs = self.get_boto_client('ecs')
-        res = ecs.create_cluster(
+        ecs.create_cluster(
             clusterName=f'fuku-{name}'
         )
         ec2 = self.get_boto_client('ec2')
@@ -87,17 +84,18 @@ class Cluster(Module):
         self.use_context = False
         if name and name not in list(self.iter_clusters()):
             self.error(f'no cluster "{name}"')
+
         if name:
             path = self.get_secure_file(f'{name}/key.pem')
-            self.run(
-                f'ssh-add {path}'
-            )
+            self.run(f'ssh-add {path}')
         else:
             sel = self.store_get('selected')
             if sel:
                 self.clear_secure_file(f'{sel}/key.pem')
+
         self.store_set('selected', name)
         self.clear_parent_selections()
+
         # path = os.path.join(get_rc_path(), name, 'key.pem')
         # if not os.path.exists(path):
         #     key = self.gets3(f'{name}/key.pem.gpg')
@@ -116,7 +114,6 @@ class Cluster(Module):
         self.summary()
 
     def summary(self):
-        ctx = self.get_context()
         app_mod = self.get_module('app')
         svc_mod = self.get_module('service')
         for app in app_mod.iter_apps():
