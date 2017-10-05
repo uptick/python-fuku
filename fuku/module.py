@@ -105,6 +105,7 @@ class Module(object):
         return output
 
     def clear_parent_selections(self):
+        self.get_logger().debug(f'Clearing parent selections for {self.name}')
         for parent in self.client.iter_parent_modules(self.name):
             try:
                 parent.select(None)
@@ -159,8 +160,12 @@ class Module(object):
                 pass
 
     def store_set(self, key, value):
+        self.get_logger().debug(f'Set {self.name} store {self.store} with {key}={value}')
+
         if value:
             self.store[key] = value
+            if key == 'selected':
+                self.get_logger().info(f'selected: {value}')
         else:
             try:
                 del self.store[key]
