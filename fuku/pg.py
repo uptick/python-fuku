@@ -265,19 +265,8 @@ class Pg(Module):
             pgpass_path = f'{ctx["cluster"]}/{name}.pgpass'
             # self.exists(name)
             self.get_secure_file(pgpass_path)
-            # self.get_pgpass_file(name)
-            self.store['selected'] = name
-        else:
-            sel = self.store.get('selected', None)
-            # if sel:
-            #     self.use_context = False
-            #     ctx = self.get_context()
-            #     pgpass_path = f'{ctx["cluster"]}/{sel}.pgpass'
-            #     self.clear_secure_file(pgpass_path)
-            try:
-                del self.store['selected']
-            except KeyError:
-                pass
+
+        self.store_set('selected', name)
         self.clear_parent_selections()
 
     def handle_psql(self, args):
