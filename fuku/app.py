@@ -61,12 +61,15 @@ class App(Module):
         self.select(args.name)
 
     def select(self, name):
-        for gr in self.iter_groups():
-            if name and gr.name.endswith('-' + name):
-                self.store_set('selected', name)
-                self.clear_parent_selections()
-                return
-        self.error(f'no app "{name}"')
+        if name is not None:
+            for gr in self.iter_groups():
+                if name and gr.name.endswith('-' + name):
+                    self.store_set('selected', name)
+                    self.clear_parent_selections()
+                    return
+            self.error(f'no app "{name}"')
+        else:
+            self.clear_parent_selections()
 
     def handle_run(self, args):
         self.run(args.image, args.command)
