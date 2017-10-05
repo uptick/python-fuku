@@ -26,6 +26,7 @@ class Client(object):
             )
 
         self.db = get_default_db()
+        self.logger = logging.getLogger('fuku.client')
 
     def add_module(self, module):
         module = module(db=self.db, client=self)
@@ -56,8 +57,10 @@ class Client(object):
         return self.get_module(module).get_selected()
 
     def iter_parent_modules(self, name):
+        self.logger.debug('Iterating parent modules')
         for mod in self.modules:
             if name in mod.dependencies:
+                self.logger.debug(f'\t{mod.name} - dependencies: {mod.dependencies}')
                 yield mod
 
     def iter_dependent_modules(self, parent):
@@ -71,7 +74,7 @@ class Client(object):
 
         # set the logging log level based on parsed arguments
         loglevel = vars(self.args).get('log') or 'WARNING'
-        logformat = f'{Fore.CYAN}%(levelname)s:{Fore.GREEN}%(name)s:{Fore.RESET}%(message)s'
+        logformat = f'{Fore.CYAN}%(levelname)-10s {Fore.GREEN}%(name)s\t{Fore.RESET}%(message)s'
         logging.basicConfig(level=loglevel, format=logformat)
 
         try:
