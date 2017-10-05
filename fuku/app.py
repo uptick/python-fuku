@@ -166,7 +166,7 @@ class App(Module):
             if not sel:
                 self.error('no app currently selected')
             ctx = {'app': sel}
-        self.get_logger().info(f'APP Context: {ctx}')
+        self.get_logger().debug(f'APP Context: {ctx}')
         return ctx
 
 

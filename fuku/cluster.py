@@ -82,6 +82,8 @@ class Cluster(Module):
         self.select(args.name)
 
     def select(self, name):
+        self.get_logger().debug(f'Selecting: {name}')
+
         self.use_context = False
         if name and name not in list(self.iter_clusters()):
             self.error(f'no cluster "{name}"')

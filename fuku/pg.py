@@ -513,5 +513,5 @@ class Pg(Module):
                 self.error('no DB currently selected')
             ctx = {'dbinstance': sel}
 
-        self.get_logger().info(f'PG Context: {ctx}')
+        self.get_logger().debug(f'PG Context: {ctx}')
         return ctx
