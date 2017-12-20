@@ -9,6 +9,14 @@ from .utils import (
     mounts_to_string, volumes_to_dict
 )
 
+IGNORED_TASK_TO_SERVICE_KWARGS = [
+    'taskDefinitionArn',
+    'revision',
+    'status',
+    'requiresAttributes',
+    'compatibilites',
+]
+
 
 class Service(Module):
     dependencies = ['task']
@@ -424,13 +432,7 @@ class EcsService(Service):
         ctr_def['environment'] = dict_to_env(env)
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
-        skip = set([
-            'taskDefinitionArn',
-            'revision',
-            'status',
-            'requiresAttributes',
-            'compatibilites',
-        ])
+        skip = set(IGNORED_TASK_TO_SERVICE_KWARGS)
         task = ecs_cli.register_task_definition(**dict([
             (k, v) for k, v in task.items() if k not in skip
         ]))['taskDefinition']
@@ -487,7 +489,7 @@ class EcsService(Service):
         ctr_def['environment'] = dict_to_env(env)
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
-        skip = set(['taskDefinitionArn', 'revision', 'status', 'requiresAttributes'])
+        skip = set(IGNORED_TASK_TO_SERVICE_KWARGS)
         task = ecs_cli.register_task_definition(**dict([
             (k, v) for k, v in task.items() if k not in skip
         ]))['taskDefinition']
