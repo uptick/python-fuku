@@ -490,7 +490,6 @@ class EcsService(Service):
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
         skip = set(IGNORED_TASK_TO_SERVICE_KWARGS)
-        import pdb; pdb.set_trace()
         task = ecs_cli.register_task_definition(**{
             k: v for k, v in task.items() if k not in skip
         })['taskDefinition']
