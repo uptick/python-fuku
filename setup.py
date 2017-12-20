@@ -2,11 +2,12 @@ import os
 
 from setuptools import find_packages, setup
 
-version = '0.0.22'
+with open('./fuku/__init__.py') as f:
+    exec(re.search(r'VERSION = .*', f.read(), re.DOTALL).group())
 
 setup(
     name='fuku',
-    version=version,
+    version=__version__,
     author='Luke Hodkinson',
     author_email='furious.luke@gmail.com',
     maintainer='Luke Hodkinson',
