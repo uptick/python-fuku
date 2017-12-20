@@ -14,7 +14,7 @@ IGNORED_TASK_TO_SERVICE_KWARGS = [
     'revision',
     'status',
     'requiresAttributes',
-    'compatibilites',
+    'compatibilities',
 ]
 
 
@@ -490,9 +490,10 @@ class EcsService(Service):
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
         skip = set(IGNORED_TASK_TO_SERVICE_KWARGS)
-        task = ecs_cli.register_task_definition(**dict([
-            (k, v) for k, v in task.items() if k not in skip
-        ]))['taskDefinition']
+        import pdb; pdb.set_trace()
+        task = ecs_cli.register_task_definition(**{
+            k: v for k, v in task.items() if k not in skip
+        })['taskDefinition']
         # TODO: Deregister previous task definitions.
         kwargs = {
             'cluster': cluster,
