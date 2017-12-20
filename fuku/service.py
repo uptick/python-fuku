@@ -424,7 +424,13 @@ class EcsService(Service):
         ctr_def['environment'] = dict_to_env(env)
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
-        skip = set(['taskDefinitionArn', 'revision', 'status', 'requiresAttributes'])
+        skip = set([
+            'taskDefinitionArn',
+            'revision',
+            'status',
+            'requiresAttributes',
+            'compatibilites',
+        ])
         task = ecs_cli.register_task_definition(**dict([
             (k, v) for k, v in task.items() if k not in skip
         ]))['taskDefinition']
