@@ -37,7 +37,9 @@ pip install fuku
 
  2. `fuku profile ls` to see available profiles.
 
-    `fuku profile mk <name>` to make the AWS groups etc required.
+    [optional] If you need multiple AWS profiles, create a new profile by editing the file `~/.aws/credentials` and copying the default lines.
+    
+    `fuku profile sl <profile>` to select the active AWS profile for Fuku.
 
  3. `fuku profile bucket <bucket>` to set a workspace for Fuku.
 
