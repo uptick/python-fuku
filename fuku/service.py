@@ -2,7 +2,7 @@ import json
 
 from .module import Module
 from .runner import CommandError
-from .tasks import IGNORED_TASK_KWARGS
+from .task import IGNORED_TASK_KWARGS
 from .utils import (
     json_serial,
     StoreKeyValuePair,

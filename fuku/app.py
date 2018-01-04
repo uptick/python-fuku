@@ -1,5 +1,5 @@
 from .module import Module
-from .tasks import IGNORED_TASK_KWARGS
+from .task import IGNORED_TASK_KWARGS
 from .utils import entity_already_exists
 
 
