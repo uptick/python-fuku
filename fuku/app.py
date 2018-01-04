@@ -1,4 +1,5 @@
 from .module import Module
+from .tasks import IGNORED_TASK_KWARGS
 from .utils import entity_already_exists
 
 
@@ -153,10 +154,10 @@ class App(Module):
         }
         task['containerDefinitions'].append(ctr_def)
         ecs = self.get_boto_client('ecs')
-        skip = set(['taskDefinitionArn', 'revision', 'status', 'requiresAttributes'])
-        ecs.register_task_definition(**dict([
-            (k, v) for k, v in task.items() if k not in skip
-        ]))
+        skip = set(IGNORED_TASK_KWARGS)
+        ecs.register_task_definition(**{
+            k: v for k, v in task.items() if k not in skip
+        })
 
     def get_my_context(self):
         if self.client.args.app:

@@ -2,20 +2,13 @@ import json
 
 from .module import Module
 from .runner import CommandError
+from .tasks import IGNORED_TASK_KWARGS
 from .utils import (
     json_serial,
     StoreKeyValuePair,
     env_to_string, ports_to_string, env_to_dict, dict_to_env,
     mounts_to_string, volumes_to_dict
 )
-
-IGNORED_TASK_TO_SERVICE_KWARGS = [
-    'taskDefinitionArn',
-    'revision',
-    'status',
-    'requiresAttributes',
-    'compatibilities',
-]
 
 
 class Service(Module):
@@ -432,10 +425,10 @@ class EcsService(Service):
         ctr_def['environment'] = dict_to_env(env)
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
-        skip = set(IGNORED_TASK_TO_SERVICE_KWARGS)
-        task = ecs_cli.register_task_definition(**dict([
-            (k, v) for k, v in task.items() if k not in skip
-        ]))['taskDefinition']
+        skip = set(IGNORED_TASK_KWARGS)
+        task = ecs_cli.register_task_definition(**{
+            k: v for k, v in task.items() if k not in skip
+        })['taskDefinition']
         # TODO: Deregister previous task definitions.
         kwargs = {
             'cluster': cluster,
@@ -489,7 +482,7 @@ class EcsService(Service):
         ctr_def['environment'] = dict_to_env(env)
         task['containerDefinitions'] = [ctr_def]
         ecs_cli = self.get_boto_client('ecs')
-        skip = set(IGNORED_TASK_TO_SERVICE_KWARGS)
+        skip = set(IGNORED_TASK_KWARGS)
         task = ecs_cli.register_task_definition(**{
             k: v for k, v in task.items() if k not in skip
         })['taskDefinition']

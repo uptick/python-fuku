@@ -14,6 +14,14 @@ from .utils import (
     volumes_to_dict,
 )
 
+IGNORED_TASK_KWARGS = [
+    'taskDefinitionArn',
+    'revision',
+    'status',
+    'requiresAttributes',
+    'compatibilities',
+]
+
 
 class Task(Module):
     dependencies = ['app']
@@ -414,10 +422,10 @@ class Task(Module):
 
     def register_task(self, task):
         ecs = self.get_boto_client('ecs')
-        skip = set(['taskDefinitionArn', 'revision', 'status', 'requiresAttributes'])
-        ecs.register_task_definition(**dict([
-            (k, v) for k, v in task.items() if k not in skip
-        ]))
+        skip = set(IGNORED_TASK_KWARGS)
+        ecs.register_task_definition(**{
+            k: v for k, v in task.items() if k not in skip
+        })
 
     def get_container_definition(self, task, name, fail=True):
         if name is None:
