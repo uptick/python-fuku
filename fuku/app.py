@@ -46,7 +46,7 @@ class App(Module):
 
     def iter_apps(self):
         for gr in self.iter_groups():
-            yield gr.group_name[5:]
+            yield gr.group_name.rsplit('-', 1)[1]
 
     def handle_make(self, args):
         self.make(args.name)
