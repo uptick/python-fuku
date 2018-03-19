@@ -340,6 +340,7 @@ class EcsService(Service):
 
         p = subp.add_parser('ls', help='list services')
         p.add_argument('task', metavar='TASK', nargs='?', help='task name')
+        p.add_argument('--long', '-l',  action='store_true', help='list long format')
         p.set_defaults(service_handler=self.handle_list)
 
         p = subp.add_parser('mk', help='make a service')
@@ -383,23 +384,18 @@ class EcsService(Service):
         p.add_argument('command', metavar='COMMAND', nargs='+', help='command to run')
         p.set_defaults(service_handler=self.handle_run)
 
-    def list(self, task_name):
+    def handle_list(self, args):
+        self.list(args.task, args.long)
+
+    def list(self, task_name, long=False):
         if task_name:
-            data = self.describe_service(task_name)
-            # ecs = self.get_boto_client('ecs')
-            # ctx = self.get_context()
-            # data = ecs.describe_services(
-            #     cluster=f'fuku-{ctx["cluster"]}',
-            #     services=[
-            #         f'fuku-{ctx["app"]}-{task_name}'
-            #     ]
-            # )['services'][0]
+            data = self.describe_service(task_name, long=long)
             print(json.dumps(data, default=json_serial, indent=2))
         else:
             for svc in self.iter_services(task_name):
                 print(svc)
 
-    def describe_service(self,task_name,  app_name=None):
+    def describe_service(self, task_name,  app_name=None, long=False):
         ecs = self.get_boto_client('ecs')
         ctx = self.get_context()
         app_name = ctx.get('app', app_name)
@@ -409,6 +405,17 @@ class EcsService(Service):
                 f'fuku-{app_name}-{task_name}'
             ]
         )['services'][0]
+
+        if not long:
+            # simple list shows summarised version of describe_services
+            data = {
+                key: val[:3] if key == 'events' else val
+                for key, val in data.items()
+                if key in {
+                    'serviceName', 'status', 'desiredCount', 'runningCount',
+                    'pendingCount', 'taskDefinition', 'events', 'deployments',
+                }
+            }
         return data
 
     def handle_make(self, args):
