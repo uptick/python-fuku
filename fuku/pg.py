@@ -18,6 +18,7 @@ class Pg(Module):
         super().__init__('pg', **kwargs)
 
     def add_arguments(self, parser):
+        # ## SECTION FOR fuku pg ## #
         subp = parser.add_subparsers(help='pg help')
 
         p = subp.add_parser('ls', help='list postgres DBs')
@@ -34,16 +35,6 @@ class Pg(Module):
         # p.add_argument('name', metavar='NAME', help='DB name')
         # p.add_argument('password', metavar='PASSWORD', help='DB password')
         # p.set_defaults(pg_handler=self.handle_cache)
-
-        p = subp.add_parser('db', help='manage databases')
-        ssp = p.add_subparsers()
-
-        p = ssp.add_parser('ls')
-        p.set_defaults(pg_handler=self.handle_db_list)
-
-        p = ssp.add_parser('mk')
-        p.add_argument('dbname', metavar='DBNAME', help='DB name')
-        p.set_defaults(pg_handler=self.handle_db_make)
 
         p = subp.add_parser('connect', help='connect to a task')
         p.add_argument('dbname', metavar='DBNAME', help='DB name')
@@ -86,6 +77,21 @@ class Pg(Module):
 
         p = subp.add_parser('summary', help='summarize databases')
         p.set_defaults(pg_handler=self.handle_summary)
+
+        # ## SECTION FOR fuku pg db ## #
+        p = subp.add_parser('db', help='manage databases')
+        ssp = p.add_subparsers()
+
+        p = ssp.add_parser('ls')
+        p.set_defaults(pg_handler=self.handle_db_list)
+
+        p = ssp.add_parser('mk')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.set_defaults(pg_handler=self.handle_db_make)
+
+        p = ssp.add_parser('rm')
+        p.add_argument('dbname', metavar='DBNAME', help='DB name')
+        p.set_defaults(pg_handler=self.handle_db_remove)
 
     def handle_list(self, args):
         self.list(args.name)
@@ -220,6 +226,14 @@ class Pg(Module):
         self.encrypt_file(path, purpose='the database credentials')
         s3 = self.get_boto_client('s3')
         s3.upload_file(f'{path}.gpg', ctx['bucket'], f'fuku/{ctx["cluster"]}/{ctx["app"]}/{inst_name}/{name}.pgpass.gpg')
+
+    def handle_db_remove(self, args):
+        self.db_remove(args.dbname)
+
+    def db_remove(self, name):
+        db_id = self.get_db_id(name)
+        self.psql(command=f'DROP DATABASE {db_id}')
+        self.psql(command=f'DROP ROLE {db_id}')
 
     # def handle_cache(self, args):
     #     self.cache(args.name, args.password)

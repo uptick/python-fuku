@@ -4,10 +4,14 @@ from .module import Module
 from .runner import CommandError
 from .task import IGNORED_TASK_KWARGS
 from .utils import (
-    json_serial,
     StoreKeyValuePair,
-    env_to_string, ports_to_string, env_to_dict, dict_to_env,
-    mounts_to_string, volumes_to_dict
+    dict_to_env,
+    env_to_dict,
+    env_to_string,
+    json_serial,
+    mounts_to_string,
+    ports_to_string,
+    volumes_to_dict,
 )
 
 
@@ -460,7 +464,7 @@ class EcsService(Service):
         if expose:
             kwargs['loadBalancers'] = [
                 {
-                    'targetGroupArn': self.get_module('app').get_target_group_arn(),
+                    'targetGroupArn': self.get_module('app').get_target_group()['TargetGroupArn'],
                     'containerName': task_name,
                     'containerPort': 80
                 }

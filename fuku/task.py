@@ -158,24 +158,21 @@ class Task(Module):
     def remove(self, name):
         self.confirm_remove(name)
 
-        # # Deregister the task definitions.
-        # ecs_cli = self.get_boto_client('ecs')
-        # paginator = ecs_cli.get_paginator('list_task_definitions')
-        # family = self.get_task_family(name)
-        # task_defs = paginator.paginate(
-        #     familyPrefix=family
-        # )
-        # for results in task_defs:
-        #     for arn in results['taskDefinitionArns']:
-        #         ecs_cli.deregister_task_definition(taskDefinition=arn)
+        # Deregister the task definitions.
+        ecs_cli = self.get_boto_client('ecs')
+        family = self.get_task_family(name)
 
-        # # Also deregister the launch task definitions (prefixed with underbar).
-        # task_defs = paginator.paginate(
-        #     familyPrefix='_' + family
-        # )
-        # for results in task_defs:
-        #     for arn in results['taskDefinitionArns']:
-        #         ecs_cli.deregister_task_definition(taskDefinition=arn)
+        paginator = ecs_cli.get_paginator('list_task_definitions')
+        task_defs = paginator.paginate(familyPrefix=family)
+        for results in task_defs:
+            for arn in results['taskDefinitionArns']:
+                ecs_cli.deregister_task_definition(taskDefinition=arn)
+
+        # Also deregister the launch task definitions (prefixed with underbar).
+        task_defs = paginator.paginate(familyPrefix='_' + family)
+        for results in task_defs:
+            for arn in results['taskDefinitionArns']:
+                ecs_cli.deregister_task_definition(taskDefinition=arn)
 
     def handle_update(self, args):
         self.update(args.name, args.image, args.cpu, args.memory)
@@ -393,6 +390,7 @@ class Task(Module):
     def get_task_family(self, name, ctx=None):
         if ctx is None:
             ctx = self.get_context()
+
         return '-'.join(['fuku', ctx['cluster'], ctx['app']] + ([name] if name else []))
 
     def get_task(self, name, ctx=None, fail=True):

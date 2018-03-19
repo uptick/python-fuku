@@ -205,6 +205,10 @@ class Module(object):
         self.setup_boto_session(ctx)
         return boto3.client(resource)
 
+    def get_boto_paginator(self, client, resource, ctx={}):
+        self.setup_boto_session(ctx)
+        return boto3.client(client).get_paginator(resource)
+
     def puts3(self, key, value):
         ctx = self.get_context()
         s3 = self.get_boto_client('s3')
