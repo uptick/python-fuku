@@ -19,9 +19,9 @@ class App(Module):
         p.add_argument('name', metavar='NAME', help='app name')
         p.set_defaults(app_handler=self.handle_make)
 
-        # remp = subp.add_parser('remove', help='remove an app')
-        # remp.add_argument('name', help='app name')
-        # remp.set_defaults(app_handler=self.remove)
+        remp = subp.add_parser('rm', help='remove an app')
+        remp.add_argument('name', help='app name')
+        remp.set_defaults(app_handler=self.handle_remove)
 
         p = subp.add_parser('sl', help='select an app')
         p.add_argument('name', metavar='NAME', help='app name')
@@ -33,9 +33,13 @@ class App(Module):
         p.set_defaults(app_handler=self.handle_run)
 
         p = subp.add_parser('expose', help='expose to internet')
+        p.add_argument('name', metavar='NAME', help='app name')
         p.add_argument('domain', metavar='DOMAIN', help='domain name')
-        p.add_argument('load_balancer_index', metavar='LOAD_BALANCER_INDEX', help='load balancer index')
         p.set_defaults(app_handler=self.handle_expose)
+
+        p = subp.add_parser('hide', help='hide from internet')
+        p.add_argument('name', metavar='NAME', help='app name')
+        p.set_defaults(app_handler=self.handle_hide)
 
     def handle_list(self, args):
         self.list()
@@ -45,26 +49,44 @@ class App(Module):
             print(app)
 
     def iter_apps(self):
-        for gr in self.iter_groups():
-            yield gr.group_name.rsplit('-', 1)[1]
+        for gr in self.iter_target_groups():
+            yield gr['TargetGroupName'].rsplit('-', 1)[1]
 
     def handle_make(self, args):
         self.make(args.name)
 
     def make(self, name):
         self.use_context = False
+
         self.validate(name)
-        self.create_group(name)
+
+        if self.get_target_group(name):
+            self.error(f'App "{name}" already exists')
+            return
+
+        self.make_target_group(name)
         self.make_task(name)
         self.select(name)
+
+    def handle_remove(self, args):
+        self.remove(args.name)
+
+    def remove(self, name):
+        self.use_context = False
+
+        if not self.get_target_group(name):
+            self.error(f'No such app "{name}"')
+            return
+
+        self.remove_target_group(name)
 
     def handle_select(self, args):
         self.select(args.name)
 
     def select(self, name):
         if name is not None:
-            for gr in self.iter_groups():
-                if name and gr.name.endswith('-' + name):
+            for gr in self.iter_target_groups():
+                if name and gr['TargetGroupName'].endswith('-' + name):
                     self.store_set('selected', name)
                     self.clear_parent_selections()
                     return
@@ -83,65 +105,88 @@ class App(Module):
         node_mod.mgr_run(full_cmd, tty=True)
 
     def handle_expose(self, args):
-        self.expose(args.domain, args.load_balancer_index)
+        self.expose(args.name, args.domain)
 
-    def expose(self, domain, load_balancer_index):
-        cluster_mod = self.get_module('cluster')
+    def expose(self, name, domain):
         alb_cli = self.get_boto_client('elbv2')
-        tg_arn = self.get_target_group_arn()
-        for listener in cluster_mod.iter_listeners(index=load_balancer_index):
-            rules = alb_cli.describe_rules(
-                ListenerArn=listener['ListenerArn']
-            )['Rules']
+        target_group_arn = self.get_target_group()['TargetGroupArn']
 
-            rule_priorities = [int(r['Priority']) for r in rules if r['Priority'] != 'default']
-            priority = (max(rule_priorities) + 1) if rule_priorities else 1
-            alb_cli.create_rule(
-                ListenerArn=listener['ListenerArn'],
-                Conditions=[
-                    {
-                        'Field': 'host-header',
-                        'Values': [domain]
-                    }
-                ],
-                Priority=priority,
-                Actions=[
-                    {
-                        'Type': 'forward',
-                        'TargetGroupArn': tg_arn
-                    }
-                ]
-            )
+        added = False
+        paginate = self.get_boto_paginator('elbv2', 'describe_load_balancers').paginate()
+        for elb in paginate.search(
+            'LoadBalancers[?starts_with(LoadBalancerName, `"fuku-uptick-"`)]'
+        ):
+            listeners = alb_cli.describe_listeners(LoadBalancerArn=elb['LoadBalancerArn'])
+            for listener in listeners['Listeners']:
+                rules = alb_cli.describe_rules(ListenerArn=listener['ListenerArn'])['Rules']
 
-    def iter_groups(self):
-        self.use_context = False
-        ctx = self.get_context()
-        iam = self.get_boto_resource('iam')
-        for gr in iam.groups.filter(PathPrefix=f'/fuku/{ctx["cluster"]}/'):
-            yield gr
+                # # check that rule does not already exist
+                for rule in rules:
+                    try:
+                        if (
+                            rule['Conditions'][0]['Values'][0] == domain and
+                            rule['Actions'][0]['TargetGroupArn'] == target_group_arn
+                        ):
+                            self.error(f'App already exposed on {elb["LoadBalancerName"]}')
+                    except IndexError:
+                        pass
 
-    def create_group(self, name):
-        ctx = self.get_context()
-        cluster = ctx['cluster']
-        iam = self.get_boto_client('iam')
-        with entity_already_exists():
-            iam.create_group(
-                Path=f'/fuku/{cluster}/{name}/',
-                GroupName=f'fuku-{cluster}-{name}'
-            )
+                # count how many rules there are to define next priority
+                rule_priorities = [int(r['Priority']) for r in rules if r['Priority'] != 'default']
+                priority = (max(rule_priorities) + 1) if rule_priorities else 1
+                try:
+                    # attempt to create the rule
+                    alb_cli.create_rule(
+                        ListenerArn=listener['ListenerArn'],
+                        Conditions=[
+                            {
+                                'Field': 'host-header',
+                                'Values': [domain]
+                            }
+                        ],
+                        Priority=priority,
+                        Actions=[
+                            {
+                                'Type': 'forward',
+                                'TargetGroupArn': target_group_arn
+                            }
+                        ]
+                    )
+                    added = True
+                    print(f'{elb["LoadBalancerName"]} [added]')
+                except alb_cli.exceptions.TooManyRulesException:
+                    print(f'{elb["LoadBalancerName"]} [skipped - full]')
+                    break
 
-    def delete_app_group(self, name):
-        # ctx = self.get_context()
-        #  cluster = ctx['cluster']
-        assert 0, 'todo'
+            if added:
+                break
+
+    def handle_hide(self, args):
+        self.hide(args.name)
+
+    def hide(self, name):
+        alb_cli = self.get_boto_client('elbv2')
+
+        target_group = self.get_target_group(name)
+        if not target_group:
+            self.error(f'App {name} is not exposed')
+
+        listeners = alb_cli.describe_listeners(LoadBalancerArn=target_group['LoadBalancerArns'][0])['Listeners']
+        for listener in listeners:
+            rules = alb_cli.describe_rules(ListenerArn=listener['ListenerArn'])['Rules']
+            for rule in rules:
+                try:
+                    if rule['Actions'][0]['TargetGroupArn'] == target_group['TargetGroupArn']:
+                        alb_cli.delete_rule(RuleArn=rule['RuleArn'])
+                except IndexError:
+                    pass
 
     def make_task(self, name):
         ctx = self.get_context()
         ecr_cli = self.get_boto_client('ecr')
         with entity_already_exists():
-            ecr_cli.create_repository(
-                repositoryName='fuku'
-            )
+            ecr_cli.create_repository(repositoryName='fuku')
+
         img_uri = self.client.get_module('image').image_name_to_uri('/fuku')
         task = {
             'family': f'fuku-{ctx["cluster"]}-{name}',
@@ -188,12 +233,32 @@ class EcsApp(App):
             Matcher={
                 'HttpCode': '200,301'
             }
-        )['TargetGroups'][0]['TargetGroupArn']
+        )
 
-    def get_target_group_arn(self):
+    def remove_target_group(self, name):
+        alb_cli = self.get_boto_client('elbv2')
+        target_group = self.get_target_group(name)
+        alb_cli.delete_target_group(TargetGroupArn=target_group['TargetGroupArn'])
+
+    def get_target_group(self, app=None):
         ctx = self.get_context()
         alb_cli = self.get_boto_client('elbv2')
-        tg_arn = alb_cli.describe_target_groups(
-            Names=[f'fuku-{ctx["cluster"]}-{ctx["app"]}']
-        )['TargetGroups'][0]['TargetGroupArn']
-        return tg_arn
+
+        cluster = ctx['cluster']
+        if not app:
+            app = ctx['app']
+
+        try:
+            return alb_cli.describe_target_groups(Names=[f'fuku-{cluster}-{app}', ])['TargetGroups'][0]
+        except:
+            return None
+
+    def iter_target_groups(self):
+        self.use_context = False
+        ctx = self.get_context()
+        paginate = self.get_boto_paginator('elbv2', 'describe_target_groups').paginate()
+        for gr in paginate.search(
+            'TargetGroups[?starts_with(TargetGroupName, `"fuku-{cluster}-"`)] '.format(**ctx) +
+            '| sort_by(@, &TargetGroupName)'
+        ):
+            yield gr

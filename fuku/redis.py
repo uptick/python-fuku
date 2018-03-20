@@ -51,6 +51,11 @@ class EcsRedis(Redis):
         p.add_argument('--group', metavar='GROUP', help='subnet group name')
         p.set_defaults(redis_handler=self.handle_make)
 
+        p = subp.add_parser('rm', help='remove a redis instance')
+        p.add_argument('name', metavar='NAME', help='instance name')
+        p.add_argument('--group', metavar='GROUP', help='subnet group name')
+        p.set_defaults(redis_handler=self.handle_remove)
+
         p = subp.add_parser('connect')
         p.add_argument('name', metavar='NAME', help='instance name')
         p.add_argument('target', metavar='TARGET', nargs='?', help='target task name')
@@ -130,3 +135,15 @@ class EcsRedis(Redis):
         for cache in data['CacheClusters']:
             name = cache['CacheClusterId']
             print(name)
+
+    def handle_remove(self, args):
+        self.remove(args.name, args.group)
+
+    def remove(self, name, group):
+        ec_cli = self.get_boto_client('elasticache')
+        subnet_group = self.get_id(name, group)
+
+        ec_cli.delete_cache_cluster(CacheClusterId=name)
+
+        if group:
+            ec_cli.delete_cache_subnet_group(CacheSubnetGroupName=subnet_group)

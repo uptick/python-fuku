@@ -158,24 +158,21 @@ class Task(Module):
     def remove(self, name):
         self.confirm_remove(name)
 
-        # # Deregister the task definitions.
-        # ecs_cli = self.get_boto_client('ecs')
-        # paginator = ecs_cli.get_paginator('list_task_definitions')
-        # family = self.get_task_family(name)
-        # task_defs = paginator.paginate(
-        #     familyPrefix=family
-        # )
-        # for results in task_defs:
-        #     for arn in results['taskDefinitionArns']:
-        #         ecs_cli.deregister_task_definition(taskDefinition=arn)
+        # Deregister the task definitions.
+        ecs_cli = self.get_boto_client('ecs')
+        family = self.get_task_family(name)
 
-        # # Also deregister the launch task definitions (prefixed with underbar).
-        # task_defs = paginator.paginate(
-        #     familyPrefix='_' + family
-        # )
-        # for results in task_defs:
-        #     for arn in results['taskDefinitionArns']:
-        #         ecs_cli.deregister_task_definition(taskDefinition=arn)
+        paginator = ecs_cli.get_paginator('list_task_definitions')
+        task_defs = paginator.paginate(familyPrefix=family)
+        for results in task_defs:
+            for arn in results['taskDefinitionArns']:
+                ecs_cli.deregister_task_definition(taskDefinition=arn)
+
+        # Also deregister the launch task definitions (prefixed with underbar).
+        task_defs = paginator.paginate(familyPrefix='_' + family)
+        for results in task_defs:
+            for arn in results['taskDefinitionArns']:
+                ecs_cli.deregister_task_definition(taskDefinition=arn)
 
     def handle_update(self, args):
         self.update(args.name, args.image, args.cpu, args.memory)
@@ -184,15 +181,30 @@ class Task(Module):
         ctx = self.get_context()
         task = self.get_task(name, ctx=ctx)
         ctr_def = self.get_container_definition(task, name)
+
         if image_name:
             img_uri = self.client.get_module('image').image_name_to_uri(image_name)
             ctr_def['image'] = img_uri
+
         if cpu is not None:
             ctr_def['cpu'] = int(cpu)
+
         if memory is not None:
             ctr_def['memory'] = int(memory)
             ctr_def['memoryReservation'] = int(memory)
-        self.register_task(task)
+
+        response = self.register_task(task)
+
+        # checks that the desired updates went through
+        containerDef = response['taskDefinition']['containerDefinitions'][0]
+        if image_name:
+            assert containerDef['image'].endswith(image_name)
+
+        if cpu is not None:
+            assert containerDef['cpu'] == cpu
+
+        if memory is not None:
+            assert containerDef['memory'] == memory
 
     def handle_env_list(self, args):
         self.env_list(args.name)
@@ -393,6 +405,7 @@ class Task(Module):
     def get_task_family(self, name, ctx=None):
         if ctx is None:
             ctx = self.get_context()
+
         return '-'.join(['fuku', ctx['cluster'], ctx['app']] + ([name] if name else []))
 
     def get_task(self, name, ctx=None, fail=True):
@@ -423,9 +436,10 @@ class Task(Module):
     def register_task(self, task):
         ecs = self.get_boto_client('ecs')
         skip = set(IGNORED_TASK_KWARGS)
-        ecs.register_task_definition(**{
+        response = ecs.register_task_definition(**{
             k: v for k, v in task.items() if k not in skip
         })
+        return response
 
     def get_container_definition(self, task, name, fail=True):
         if name is None:
