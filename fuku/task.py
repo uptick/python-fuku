@@ -181,15 +181,30 @@ class Task(Module):
         ctx = self.get_context()
         task = self.get_task(name, ctx=ctx)
         ctr_def = self.get_container_definition(task, name)
+
         if image_name:
             img_uri = self.client.get_module('image').image_name_to_uri(image_name)
             ctr_def['image'] = img_uri
+
         if cpu is not None:
             ctr_def['cpu'] = int(cpu)
+
         if memory is not None:
             ctr_def['memory'] = int(memory)
             ctr_def['memoryReservation'] = int(memory)
-        self.register_task(task)
+
+        response = self.register_task(task)
+
+        # checks that the desired updates went through
+        containerDef = response['taskDefinition']['containerDefinitions'][0]
+        if image_name:
+            assert containerDef['image'].endswith(image_name)
+
+        if cpu is not None:
+            assert containerDef['cpu'] == cpu
+
+        if memory is not None:
+            assert containerDef['memory'] == memory
 
     def handle_env_list(self, args):
         self.env_list(args.name)
@@ -421,9 +436,10 @@ class Task(Module):
     def register_task(self, task):
         ecs = self.get_boto_client('ecs')
         skip = set(IGNORED_TASK_KWARGS)
-        ecs.register_task_definition(**{
+        response = ecs.register_task_definition(**{
             k: v for k, v in task.items() if k not in skip
         })
+        return response
 
     def get_container_definition(self, task, name, fail=True):
         if name is None:
