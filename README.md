@@ -1,4 +1,5 @@
 # fuku
+[![PyPI version](https://badge.fury.io/py/fuku.svg)](https://badge.fury.io/py/fuku)
 
 Fuku is a (young) system to help manage web application infrastructure
 using AWS. It's aim is to replicate some of the simplicity of Heroku without
