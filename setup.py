@@ -1,5 +1,5 @@
-import re
 import os
+import re
 
 from setuptools import find_packages, setup
 
@@ -10,10 +10,10 @@ setup(
     name='fuku',
     version=__version__,
     author='Luke Hodkinson',
-    author_email='furious.luke@gmail.com',
-    maintainer='Luke Hodkinson',
-    maintainer_email='furious.luke@gmail.com',
-    url='https://github.com/ABASystems/python-fuku',
+    author_email='luke.hodkinson@uptickhq.com',
+    maintainer='Uptick',
+    maintainer_email='dev@uptickhq.com',
+    url='https://github.com/uptick/python-fuku',
     description='Easier Docker based deployments to AWS.',
     long_description=open(os.path.join(os.path.dirname(__file__), 'README.md')).read(),
     classifiers=[
