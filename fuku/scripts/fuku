@@ -30,6 +30,7 @@ from fuku.redis import Redis, EcsRedis
 from fuku.metrics import Metrics
 from fuku.datadog import Datadog
 # from fuku.papertrail import Papertrail
+from fuku.route import Route
 
 
 if __name__ == '__main__':
@@ -42,6 +43,7 @@ if __name__ == '__main__':
         Image, Task, EcsService,
         EcsRedis, Pg,
         Metrics,
-        Datadog
+        Datadog,
+        Route
     )
     cli.entry()

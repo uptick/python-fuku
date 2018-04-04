@@ -34,7 +34,7 @@ class App(Module):
 
         p = subp.add_parser('expose', help='expose to internet')
         p.add_argument('name', metavar='NAME', help='app name')
-        p.add_argument('domain', metavar='DOMAIN', help='domain name')
+        p.add_argument('domains', metavar='DOMAINS', help='list of domain names', nargs='*')
         p.set_defaults(app_handler=self.handle_expose)
 
         p = subp.add_parser('hide', help='hide from internet')
@@ -105,81 +105,10 @@ class App(Module):
         node_mod.mgr_run(full_cmd, tty=True)
 
     def handle_expose(self, args):
-        self.expose(args.name, args.domain)
-
-    def expose(self, name, domain):
-        alb_cli = self.get_boto_client('elbv2')
-        target_group_arn = self.get_target_group()['TargetGroupArn']
-
-        added = False
-        paginate = self.get_boto_paginator('elbv2', 'describe_load_balancers').paginate()
-        for elb in paginate.search(
-            'LoadBalancers[?starts_with(LoadBalancerName, `"fuku-uptick-"`)]'
-        ):
-            listeners = alb_cli.describe_listeners(LoadBalancerArn=elb['LoadBalancerArn'])
-            for listener in listeners['Listeners']:
-                rules = alb_cli.describe_rules(ListenerArn=listener['ListenerArn'])['Rules']
-
-                # # check that rule does not already exist
-                for rule in rules:
-                    try:
-                        if (
-                            rule['Conditions'][0]['Values'][0] == domain and
-                            rule['Actions'][0]['TargetGroupArn'] == target_group_arn
-                        ):
-                            self.error(f'App already exposed on {elb["LoadBalancerName"]}')
-                    except IndexError:
-                        pass
-
-                # count how many rules there are to define next priority
-                rule_priorities = [int(r['Priority']) for r in rules if r['Priority'] != 'default']
-                priority = (max(rule_priorities) + 1) if rule_priorities else 1
-                try:
-                    # attempt to create the rule
-                    alb_cli.create_rule(
-                        ListenerArn=listener['ListenerArn'],
-                        Conditions=[
-                            {
-                                'Field': 'host-header',
-                                'Values': [domain]
-                            }
-                        ],
-                        Priority=priority,
-                        Actions=[
-                            {
-                                'Type': 'forward',
-                                'TargetGroupArn': target_group_arn
-                            }
-                        ]
-                    )
-                    added = True
-                    print(f'{elb["LoadBalancerName"]} [added]')
-                except alb_cli.exceptions.TooManyRulesException:
-                    print(f'{elb["LoadBalancerName"]} [skipped - full]')
-                    break
-
-            if added:
-                break
+        self.expose(args.name, args.domains)
 
     def handle_hide(self, args):
         self.hide(args.name)
-
-    def hide(self, name):
-        alb_cli = self.get_boto_client('elbv2')
-
-        target_group = self.get_target_group(name)
-        if not target_group:
-            self.error(f'App {name} is not exposed')
-
-        listeners = alb_cli.describe_listeners(LoadBalancerArn=target_group['LoadBalancerArns'][0])['Listeners']
-        for listener in listeners:
-            rules = alb_cli.describe_rules(ListenerArn=listener['ListenerArn'])['Rules']
-            for rule in rules:
-                try:
-                    if rule['Actions'][0]['TargetGroupArn'] == target_group['TargetGroupArn']:
-                        alb_cli.delete_rule(RuleArn=rule['RuleArn'])
-                except IndexError:
-                    pass
 
     def make_task(self, name):
         ctx = self.get_context()
@@ -262,3 +191,77 @@ class EcsApp(App):
             '| sort_by(@, &TargetGroupName)'
         ):
             yield gr
+
+
+    def expose(self, name, domains):
+        alb_cli = self.get_boto_client('elbv2')
+        target_group = self.get_target_group()
+
+        if target_group['LoadBalancerArns']:
+            self.error(
+                f"App already exposed on {target_group['LoadBalancerArns']}." +
+                '\nPlease remove target group from those load balancers first.'
+            )
+
+        # TODO: this is the default limit, look into implementing a check against ec2.describe_account_attributes
+        MAX_RULES = 50
+
+        added = False
+        paginate = self.get_boto_paginator('elbv2', 'describe_load_balancers').paginate()
+        for elb in paginate.search(
+            'LoadBalancers[?starts_with(LoadBalancerName, `"fuku-uptick-"`)]'
+        ):
+            listeners = alb_cli.describe_listeners(LoadBalancerArn=elb['LoadBalancerArn'])
+            for listener in listeners['Listeners']:
+                rules = alb_cli.describe_rules(ListenerArn=listener['ListenerArn'])['Rules']
+
+                # make sure we have space in the load balancer
+                if len(rules) > (MAX_RULES - len(domains)):
+                    print(f'{elb["LoadBalancerName"]} [skipped - full]')
+                    break
+
+                # count how many rules there are to define next priority
+                rule_priorities = [int(r['Priority']) for r in rules if r['Priority'] != 'default']
+                priority = (max(rule_priorities) + 1) if rule_priorities else 1
+
+                for i, domain in enumerate(domains):
+                    # attempt to create the rule
+                    alb_cli.create_rule(
+                        ListenerArn=listener['ListenerArn'],
+                        Conditions=[
+                            {
+                                'Field': 'host-header',
+                                'Values': [domain]
+                            }
+                        ],
+                        Priority=priority + i,
+                        Actions=[
+                            {
+                                'Type': 'forward',
+                                'TargetGroupArn': target_group['TargetGroupArn']
+                            }
+                        ]
+                    )
+                    added = True
+                    print(f'{elb["LoadBalancerName"]} {domain}:{listener["Port"]} [added]')
+            if added:
+                break
+
+    def hide(self, name):
+        alb_cli = self.get_boto_client('elbv2')
+
+        target_group = self.get_target_group(name)
+        if not target_group:
+            self.error(f'App {name} is not exposed')
+
+        for load_balancer in target_group['LoadBalancerArns']:
+            listeners = alb_cli.describe_listeners(LoadBalancerArn=load_balancer)['Listeners']
+            for listener in listeners:
+                rules = alb_cli.describe_rules(ListenerArn=listener['ListenerArn'])['Rules']
+                for rule in rules:
+                    try:
+                        if rule['Actions'][0]['TargetGroupArn'] == target_group['TargetGroupArn']:
+                            alb_cli.delete_rule(RuleArn=rule['RuleArn'])
+                            print(f'Rule on {load_balancer}:{listener["Port"]} [deleted]')
+                    except IndexError:
+                        pass
