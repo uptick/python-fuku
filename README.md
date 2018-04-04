@@ -93,7 +93,7 @@ and database. For convenience it's best to cache the session for easy retrieval:
 
 To download the current database:
 
- `fuku pg dump <dumpfile>`
+ `fuku pg dump <dumpfile> <dump_path>`
 
 
 ## Upload DB
