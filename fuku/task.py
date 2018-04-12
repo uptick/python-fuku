@@ -1,4 +1,7 @@
 import json
+import time
+
+import botocore
 
 from .module import Module
 from .utils import (
@@ -51,7 +54,7 @@ class Task(Module):
         p.set_defaults(task_handler=self.handle_update)
 
         p = subp.add_parser('rm', help='remove a task')
-        p.add_argument('name', metavar='NAME', help='task name')
+        p.add_argument('--name', default='', metavar='NAME', help='task name')
         p.set_defaults(task_handler=self.handle_remove)
 
         p = subp.add_parser('env', help='manage environment')
@@ -156,23 +159,37 @@ class Task(Module):
         self.remove(args.name)
 
     def remove(self, name):
-        self.confirm_remove(name)
+        family = self.get_task_family(name)
+        print(f'Deleting task definitions belonging to prefix {family}')
 
         # Deregister the task definitions.
-        ecs_cli = self.get_boto_client('ecs')
-        family = self.get_task_family(name)
-
-        paginator = ecs_cli.get_paginator('list_task_definitions')
-        task_defs = paginator.paginate(familyPrefix=family)
-        for results in task_defs:
-            for arn in results['taskDefinitionArns']:
-                ecs_cli.deregister_task_definition(taskDefinition=arn)
+        self.deregister_from_prefix(familyPrefix=family)
 
         # Also deregister the launch task definitions (prefixed with underbar).
-        task_defs = paginator.paginate(familyPrefix='_' + family)
+        self.deregister_from_prefix(familyPrefix='_' + family)
+
+    def deregister_from_prefix(self, familyPrefix):
+        '''
+            Deregisters a given task definiton ARN.
+            If it fails due to ThrottlingException, wait 10 seconds and retry.
+        '''
+        ecs_cli = self.get_boto_client('ecs')
+
+        paginator = ecs_cli.get_paginator('list_task_definitions')
+        task_defs = paginator.paginate(familyPrefix=familyPrefix)
         for results in task_defs:
             for arn in results['taskDefinitionArns']:
-                ecs_cli.deregister_task_definition(taskDefinition=arn)
+                while True:
+                    try:
+                        ecs_cli.deregister_task_definition(taskDefinition=arn)
+                        print(f'{arn} [DELETED]')
+                    except botocore.exceptions.ClientError as error:
+                        if error.response['Error']['Code'] != 'ThrottlingException':
+                            raise error
+                        print('Throttled.. waiting..')
+                        time.sleep(10)
+                    else:
+                        break
 
     def handle_update(self, args):
         self.update(args.name, args.image, args.cpu, args.memory)
@@ -415,7 +432,7 @@ class Task(Module):
             return ecs.describe_task_definition(
                 taskDefinition=family
             )['taskDefinition']
-        except:
+        except Exception:
             if fail:
                 self.error(f'no task "{name}"')
 
