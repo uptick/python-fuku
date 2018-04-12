@@ -159,6 +159,9 @@ class Task(Module):
         self.remove(args.name)
 
     def remove(self, name):
+        if name:
+            self.confirm_remove(name)
+
         family = self.get_task_family(name)
         print(f'Deleting task definitions belonging to prefix {family}')
 
