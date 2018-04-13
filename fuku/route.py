@@ -68,12 +68,12 @@ class Route(Module):
             StartRecordName=record_name,
             MaxItems='1'
         )['ResourceRecordSets'][0]
-        assert recordset['Name'] == record_name
+        assert recordset['Name'] == record_name, f'Recordset {record_name} not found.'
 
         # delete the recordset
         client.change_resource_record_sets(
             HostedZoneId=zone['Id'],
-            ChangeBatch= {
+            ChangeBatch={
                 'Changes': [{
                     'Action': 'DELETE',
                     'ResourceRecordSet': {
