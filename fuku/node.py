@@ -457,7 +457,8 @@ class Node(Module):
 
 class EcsNode(Node):
     ami_map = {
-        'ap-southeast-2': 'ami-c1a6bda2'
+        # 'ap-southeast-2': 'ami-c1a6bda2',
+        'ap-southeast-2': 'ami-bc04d5de'
     }
 
     def add_arguments(self, parser):
